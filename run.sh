@@ -1,0 +1,1 @@
+dune build && dune exec -- frama-c -arm8 main.c

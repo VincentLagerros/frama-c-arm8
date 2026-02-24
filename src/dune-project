@@ -1,0 +1,8 @@
+(lang dune 3.13)
+
+(using dune_site 0.1)
+
+(name frama-c-arm8)
+
+(package
+ (name frama-c-arm8))
