@@ -81,12 +81,13 @@ and pp_arm_term (out : contract_printer) (term : arm_term) =
   | ACast (_is_implicit_conversion, _convert_to_type, term) ->
       (*TODO cast correctly*)
       pp_arm_term out term
-  | _ ->
+  | SP -> Format.fprintf out.fmt "SP"
+  (*| _ ->
       (*Format.fprintf out.fmt "<<<<";
       Printer.pp_term out.fmt term;
       Format.fprintf out.fmt
         ">>>>"*)
-      raise (ArmException "Unknown pp_arm_term")
+      raise (ArmException "Unknown pp_arm_term")*)
 
 let pp_no_overflow (out : contract_printer) (o : no_overflow_type)
     (lhs : arm_term) (rhs : arm_term) =

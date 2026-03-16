@@ -47,12 +47,15 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
   | Tnull -> int_to_arm 0
   | TCast (is_implicit_conversion, convert_to_type, term) ->
       cast_to_arm env is_implicit_conversion convert_to_type term
+  | Tapp _ -> raise (ArmException "Applications like \\max or functions like strlen are currently unsupported")
   | _ ->
-      (*Format.fprintf out.fmt "<<<<";
-      Printer.pp_term out.fmt term;
-      Format.fprintf out.fmt
-        ">>>>"*)
-      raise (ArmException "Unknown pp_arm_term")
+    let buf = Buffer.create 0 in
+      let fmt = Format.formatter_of_buffer buf in
+      Printer.pp_term fmt term;
+      Format.pp_print_flush fmt ();
+      let str = Buffer.contents buf in
+      
+      raise (ArmException (Format.sprintf "Unknown term_to_arm %s" str))
 
 and at_to_arm (env : arm_enviroment) (term : term) (label : logic_label) :
     arm_term =
@@ -100,7 +103,7 @@ and logical_to_arm (_ : arm_enviroment) (logical : logic_constant) :
   | Integer (i, _) -> AInteger (Z.to_string i)
   | _ -> raise (ArmException "Unknown logical_to_arm")
 
-(* TODO support -absolute-valid-range for a range of supported values instead of p!=0*)
+(* TODO support -absolute-valid-range for a range of supported values instead of HOL *)
 (* TODO valid range as, "ACSL built-in predicate \valid (p) is now equivalent to \validrange (p,0,0)." *)
 let valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
     arm_predicate =
@@ -110,14 +113,22 @@ let valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
       raise (ArmException "\\valid is not supported with global annotations")
   | BuiltinLabel Here ->
       let arm_term = term_to_arm env term in
-
-      (* This is not a full semantic translation, as we assume that only null is invalid *)
-      (* p != NULL && (size_t)p % size_of(p) == 0 *)
-
       (* The nullcheck is for "\valid{L}((char ptr)\null) and \valid_read{L}((char ptr)\null) are always false, forany logic label L"*)
       (* The mod check is for aligment for armv8, technically frama-c have the \aligned keyword, but for armv8 "safely dereferenced" means it must be aligned *)
+      
+      (*
+        This is the same is HOL, but they check that the lower 3 bits are 0.
+
+        adress bitwise-and 0b111 = 0
+         ``^var_tm && 7w = 0w /\ ^prog_addr_max_tm <=+ ^var_tm /\ ^var_tm <+ ^mem_addr_bound_tm``
+
+        where
+
+        val prog_addr_max_tm = ``0x20000w:word64``;
+        val mem_addr_bound_tm = ``0x100000000w:word64``;
+      *)
       Aand
-        ( Arel (Rneq, arm_term, int_to_arm 0),
+        ( Aand( Arel (Rle, int_to_arm 0x20000, arm_term), Arel (Rlt, arm_term, int_to_arm 0x100000000) ),
           Arel
             ( Req,
               ABinOp
