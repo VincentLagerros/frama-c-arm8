@@ -34,7 +34,7 @@ let print_spec (out : Format.formatter) (spec : funspec) =
 
 let print_function_overflow (out : Format.formatter) (fn : fundec) =
   (* We can not access the fn.sspec directly, it will be empty *)
-  let kf = Globals.Functions.get fn.svar in
+  let _kf = Globals.Functions.get fn.svar in
   (*let sp = Annotations.funspec kf in*)
 
   (*Format.fprintf out "fn [%d]" (List.length (Annotations.behaviors kf));*)
@@ -53,7 +53,8 @@ let print_function_overflow (out : Format.formatter) (fn : fundec) =
 
   Printer.pp_block out fn.sbody;
       *)
-
+  Format.fprintf out "not implemented @."
+(*
   let behaviors = Annotations.behaviors kf in
 
   Format.fprintf out "# Function %s\n" fn.svar.vname;
@@ -66,13 +67,17 @@ let print_function_overflow (out : Format.formatter) (fn : fundec) =
   Format.fprintf out "check_overflow(\"%s\", " fn.svar.vname;
   Spec.print_arm_overflow out behaviors;
   Format.fprintf out ")\n";
-  Format.fprintf out "@."
+  Format.fprintf out "@."*)
 
 let print_function_regular (out : Format.formatter) (fn : fundec) =
   let kf = Globals.Functions.get fn.svar in
-  let behaviors = Annotations.behaviors kf in
+  let _behaviors = Annotations.behaviors kf in
 
-  Format.fprintf out "# Function %s\n" fn.svar.vname;
+  Format.fprintf out "\n# ==== Function %s ====\n" fn.svar.vname;
+  let contract = Translation.fn_to_arm fn in
+  Py.print_contract out contract;
+  Format.fprintf out "@."
+(*Format.fprintf out "# Function %s\n" fn.svar.vname;
   Format.fprintf out "_result = Int(\"\\\\result\")\n";
   List.iter
     (fun st ->
@@ -87,7 +92,7 @@ let print_function_regular (out : Format.formatter) (fn : fundec) =
   Format.fprintf out "\n";
   Format.fprintf out "R = ";
   Spec.pp_arm_predicate formatter contract.ensures;
-  Format.fprintf out "@."
+  Format.fprintf out "@."*)
 
 let print_global_overflow (out : Format.formatter) = function
   | GFun (def, _location) -> print_function_overflow out def
@@ -95,6 +100,7 @@ let print_global_overflow (out : Format.formatter) = function
 
 let print_global_regular (out : Format.formatter) = function
   | GFun (def, _location) -> print_function_regular out def
+  (*| GFunDecl(_decr, _varinfo, _location) -> Format.fprintf out "<gfundecl>"*)
   | _x -> Format.fprintf out ""
 
 let main (out : out_channel) =

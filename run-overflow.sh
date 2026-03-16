@@ -1,1 +1,1 @@
-dune build && dune exec -- frama-c -arm8 -arm8-overflow overflow.c
+dune build && dune exec -- frama-c -arm8 -arm8-overflow examples/overflow/main.c

@@ -1,1 +1,1 @@
-frama-c main.c -wp
+frama-c examples/main.c -wp

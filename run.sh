@@ -1,1 +1,1 @@
-dune build && dune exec -- frama-c -arm8 main.c
+dune build && dune exec -- frama-c -arm8 examples/default/main.c

@@ -12,4 +12,13 @@ int64_t max(int64_t x, int64_t y) {
     } else {
         return y;
     }
+} 
+
+/*@ 
+    requires \valid(p);
+    assigns *p;
+    ensures *p == \old(*p) + 1;
+*/
+void incrstar(int *p) {
+    *p = (*p) + 1;
 }
