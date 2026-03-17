@@ -15,10 +15,9 @@ int64_t max(int64_t x, int64_t y) {
 } 
 
 /*@ 
-    requires \valid(p);
-    assigns *p;
-    ensures *p == \old(*p) + 1;
+    ensures *a == *b;
 */
-void incrstar(int *p) {
-    *p = (*p) + 1;
+void incrstar(int *a, int* b) {
+    *a = 10;
+    *b = 10;
 }

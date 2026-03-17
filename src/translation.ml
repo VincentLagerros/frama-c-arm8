@@ -6,7 +6,7 @@ open Specification
 *)
 
 let int_to_arm (x : int) : arm_term = AConst (AInteger (Int.to_string x))
-let var_to_arm (x : string) = ALval (AVar x, ANoOffset)
+let var_to_arm (x : string) = ALval (AVar x)
 
 let rec type_to_size (typ : typ) =
   match typ.tnode with
@@ -24,7 +24,11 @@ let rec type_to_size (typ : typ) =
 let logic_type_to_size (logic_type : logic_type) =
   match logic_type with
   | Ctype typ -> type_to_size typ
-  | _ -> raise (ArmException "Unknown logic_type_to_size")
+  | _ ->
+      raise
+        (ArmException
+           (Format.sprintf "Unknown logic_type_to_size in type '%s'"
+              (pp_spec Printer.pp_logic_type logic_type)))
 
 let word_to_bytes (size : arm_word_size) : int =
   match size with Word8 -> 1 | Word16 -> 2 | Word32 -> 4 | Word64 -> 8
@@ -34,7 +38,6 @@ let logic_type_to_bytes (logic_type : logic_type) : int =
 
 let typ_to_bytes (typ : typ) : int = type_to_size typ |> word_to_bytes
 
-(* TODO let bindings, can be solved with free variables or replacement, not sure which is better *)
 let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
   match term.term_node with
   | TConst logical -> AConst (logical_to_arm env logical)
@@ -43,19 +46,26 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
   | TLval (host, offset) -> l_value_to_arm env host offset
   | Tat (term, label) -> at_to_arm env term label
   | TSizeOf typ -> typ_to_bytes typ |> int_to_arm
+  (*| Tlet (logical_info, term) ->
+      TODO let binding with logical info, also for let predicates, from looking at it let is more used in predicates
+
+      Hashtbl.add env.variables logical_info.l_var_info.lv_name (linfo_to_arm logical_info);
+      term_to_arm env term
+      *)
   (* a shortcut for (void ptr)0 *)
   | Tnull -> int_to_arm 0
   | TCast (is_implicit_conversion, convert_to_type, term) ->
       cast_to_arm env is_implicit_conversion convert_to_type term
-  | Tapp _ -> raise (ArmException "Applications like \\max or functions like strlen are currently unsupported")
+  | Tapp _ ->
+      raise
+        (ArmException
+           "Applications like \\max or functions like strlen are currently \
+            unsupported")
   | _ ->
-    let buf = Buffer.create 0 in
-      let fmt = Format.formatter_of_buffer buf in
-      Printer.pp_term fmt term;
-      Format.pp_print_flush fmt ();
-      let str = Buffer.contents buf in
-      
-      raise (ArmException (Format.sprintf "Unknown term_to_arm %s" str))
+      raise
+        (ArmException
+           (Format.sprintf "Unknown term_to_arm %s"
+              (pp_spec Printer.pp_term term)))
 
 and at_to_arm (env : arm_enviroment) (term : term) (label : logic_label) :
     arm_term =
@@ -66,35 +76,60 @@ and at_to_arm (env : arm_enviroment) (term : term) (label : logic_label) :
 
 and cast_to_arm (env : arm_enviroment) (_is_implicit_conversion : bool)
     (_convert_to_type : logic_type) (term : term) : arm_term =
-  (*TODO cast correctly*)
+  (* TODO cast correctly *)
   term_to_arm env term
+
+and logic_var_to_arm (env : arm_enviroment) (lvar : logic_var) : arm_term =
+  Hashtbl.find env.variables lvar.lv_name
 
 (* TODO result type with signed + unsigned? *)
 and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
     (offset : term_offset) : arm_term =
-  let (new_host : arm_term_lhost) =
+  if offset != TNoOffset then raise (ArmException "Unsupported index operation")
+  else
     match lhost with
-    | TVar logical_var -> AVar logical_var.lv_name
+    | TVar logical_var -> logic_var_to_arm env logical_var
     | TMem term ->
-        AMemory (term_to_arm env term, logic_type_to_size term.term_type)
+        ALval
+          (AMemory (term_to_arm env term, logic_type_to_size term.term_type))
     (* We can be sure this is only in a post-context as otherwise you will get "\result meaningless" error from wp *)
-    | TResult typ -> ARegister (0, type_to_size typ)
-  in
+    | TResult typ -> ALval (ARegister (0, type_to_size typ))
+(*
+
+      match offset with
+      | TNoOffset -> term
+      | TIndex(_index_term, _index_offset) ->
+        raise (ArmException "test1")
+          (*ALval
+            (AMemory (term_to_arm env term, logic_type_to_size term.term_type))*)
+      | _ -> raise (ArmException "test"))
+
+in
   let (offset : arm_term_offset) =
     match offset with
     | TNoOffset -> ANoOffset
     | TIndex (term, TNoOffset) -> AIndex (term_to_arm env term, ANoOffset)
     | _ -> raise (ArmException "Unknown l_value_to_arm offset")
   in
-  ALval (new_host, offset)
+  ALval new_host*)
 
 (* Puts the term into enviroment old, and returns the bound variable *)
 and env_old (env : arm_enviroment) (term : term) : arm_term =
   let t = term_to_arm env term in
-  let length = List.length env.old in
-  let name = Printf.sprintf "old_%d" length in
-  env.old <- (t, name) :: env.old;
-  ALval (AVar name, ANoOffset)
+
+  (*
+    We dedup on terms, so we do not fill it up with the same argument all the time, 
+    as frama-c automaticlly transforms `x` to `\old(x)` if x is an argument.
+
+    If we need perf then just make this into a hashmap
+  *)
+  match List.find_opt (fun (_name, term) -> term == t) env.old with
+  | Some (name, _) -> var_to_arm name
+  | None ->
+      let length = List.length env.old in
+      let name = Printf.sprintf "old_%d" length in
+      env.old <- (name, t) :: env.old;
+      var_to_arm name
 
 and logical_to_arm (_ : arm_enviroment) (logical : logic_constant) :
     arm_logic_constant =
@@ -113,9 +148,10 @@ let valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
       raise (ArmException "\\valid is not supported with global annotations")
   | BuiltinLabel Here ->
       let arm_term = term_to_arm env term in
+
       (* The nullcheck is for "\valid{L}((char ptr)\null) and \valid_read{L}((char ptr)\null) are always false, forany logic label L"*)
       (* The mod check is for aligment for armv8, technically frama-c have the \aligned keyword, but for armv8 "safely dereferenced" means it must be aligned *)
-      
+
       (*
         This is the same is HOL, but they check that the lower 3 bits are 0.
 
@@ -128,7 +164,9 @@ let valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
         val mem_addr_bound_tm = ``0x100000000w:word64``;
       *)
       Aand
-        ( Aand( Arel (Rle, int_to_arm 0x20000, arm_term), Arel (Rlt, arm_term, int_to_arm 0x100000000) ),
+        ( Aand
+            ( Arel (Rle, int_to_arm 0x20000, arm_term),
+              Arel (Rlt, arm_term, int_to_arm 0x100000000) ),
           Arel
             ( Req,
               ABinOp
@@ -186,25 +224,27 @@ let behavior_to_arm (env : arm_enviroment) (fn : funbehavior) : arm_contract =
     enviroment = env;
   }
 
-let varinfo_to_arm (index : int) (varinfo : varinfo) : arm_term * arm_logic_var
+let varinfo_to_arm (index : int) (varinfo : varinfo) : arm_logic_var * arm_term
     =
-  ( ALval
-      ( (if index <= 7 then
-           (* REG(s, i) *)
-           ARegister (index, type_to_size varinfo.vtype)
-         else
-           (* MEM(s, SP + (i - 8), size) *)
-           AMemory
-             ( ABinOp (PlusPI, SP, int_to_arm (index - 8)),
-               type_to_size varinfo.vtype )),
-        ANoOffset ),
-    varinfo.vorig_name )
+  let size = type_to_size varinfo.vtype in
+  ( varinfo.vorig_name,
+    ALval
+      (if index <= 7 then
+         (* REG(s, i) *)
+         ARegister (index, size)
+       else
+         (* MEM(s, SP + (i - 8), size) *)
+         AMemory (ABinOp (PlusPI, SP, int_to_arm (index - 8)), size)) )
 
-let fn_vars_to_arm (args : varinfo list) : (arm_term * arm_logic_var) list =
+let fn_vars_to_arm (args : varinfo list) : (arm_logic_var * arm_term) list =
   List.mapi varinfo_to_arm args
 
 let sformals_to_env (fn : fundec) : arm_enviroment =
-  { result = None; pre_variables = fn_vars_to_arm fn.sformals; old = [] }
+  let arguments = fn_vars_to_arm fn.sformals in
+  let table = Hashtbl.create (List.length arguments) in
+  (* All variables are substituted like "Contract-Based Verification in TriCera" *)
+  List.iter (fun (key, value) -> Hashtbl.add table key value) arguments;
+  { variables = table; old = [] }
 
 let fn_to_arm (fn : fundec) : arm_contract =
   let kf = Globals.Functions.get fn.svar in

@@ -6,7 +6,6 @@ open Cil_types
   Intermediate representation -> python z3 code for testing
 *)
 
-
 (* Returns the predicate to check if a term contains overflow *)
 (*let rec no_overflow_of_term (term : term) : arm_predicate =
   match term.term_node with
@@ -45,8 +44,7 @@ let pp_logic_var (out : contract_printer) (var : arm_logic_var) =
   Format.fprintf out.fmt "%s" var
 
 (* TODO offset! *)
-let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost)
-    (_offset : arm_term_offset) =
+let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
   match host with
   | AVar v -> pp_logic_var out v
   | ARegister (at, _size) -> Format.fprintf out.fmt "REG[%d]" at
@@ -67,6 +65,7 @@ and pp_arm_binop (out : contract_printer) (op : binop) (lhs : arm_term)
     | Mult -> "*"
     | Div -> "/"
     | Mod -> "%"
+    | PlusPI -> "?"
     | _ -> raise (ArmException "Unknown pp_arm_binop")
   in
   pp_arm_term out lhs;
@@ -77,12 +76,12 @@ and pp_arm_term (out : contract_printer) (term : arm_term) =
   match term with
   | AConst logical -> pp_arm_logical_constant out logical
   | ABinOp (op, lhs, rhs) -> pp_arm_binop out op lhs rhs
-  | ALval (host, offset) -> pp_arm_lvalue out host offset
+  | ALval host -> pp_arm_lvalue out host
   | ACast (_is_implicit_conversion, _convert_to_type, term) ->
       (*TODO cast correctly*)
       pp_arm_term out term
   | SP -> Format.fprintf out.fmt "SP"
-  (*| _ ->
+(*| _ ->
       (*Format.fprintf out.fmt "<<<<";
       Printer.pp_term out.fmt term;
       Format.fprintf out.fmt
@@ -171,38 +170,24 @@ let add_variable (term : arm_term) (name : arm_logic_var)
     (predicate : arm_predicate) =
   Aand (predicate, Arel (Req, Translation.var_to_arm name, term))
 
-let add_variables (variables : (arm_term * arm_logic_var) list)
+let add_variables (variables : (arm_logic_var * arm_term) list)
     (predicate : arm_predicate) =
   List.fold_left
-    (fun p (term, name) -> add_variable term name p)
+    (fun p (name, term) -> add_variable term name p)
     predicate variables
 
 let print_contract (out : Format.formatter) (contract : arm_contract) =
   let (formatter : contract_printer) = { fmt = out } in
 
-  (* Decalre all variables *)
-  Format.fprintf out "\n# Pre Variables\n";
-  List.iter
-    (fun (_, name) -> Format.fprintf out "%s = Int('%s')\n" name name)
-    contract.enviroment.pre_variables;
-
   Format.fprintf out "\n# Old Variables\n";
   List.iter
-    (fun (_, name) -> Format.fprintf out "%s = Int('%s')\n" name name)
+    (fun (name, _) -> Format.fprintf out "%s = Int('%s')\n" name name)
     contract.enviroment.old;
 
   Format.fprintf out "\n# Pre State\n";
   Format.fprintf out "REG = Array('REG(s)', IntSort(), IntSort())\n";
   Format.fprintf out "MEM = Array('MEM(s)', IntSort(), IntSort())\n";
   Format.fprintf out "\n# Pre Contract\n";
-
-  Format.fprintf out "PreVar = ";
-  pp_arm_predicate formatter
-    (* Add all pre variables*)
-    (add_variables contract.enviroment.pre_variables Atrue
-    (* Simplify *)
-    |> simplify);
-  Format.fprintf out "\n";
 
   Format.fprintf out "OldVar = ";
   pp_arm_predicate formatter
@@ -223,9 +208,9 @@ let print_contract (out : Format.formatter) (contract : arm_contract) =
   pp_arm_predicate formatter contract.ensures;
   Format.fprintf out "\n";
 
-  (* PreVar, OldVar, PostVar is included as they are bindings *)
+  (* OldVar is included as it binds the variables *)
   Format.fprintf out "\n# Bindings\n";
-  Format.fprintf out "P = And(PreVar, OldVar, Requires)\n";
+  Format.fprintf out "P = And(OldVar, Requires)\n";
   Format.fprintf out "R = Ensures\n";
   Format.fprintf out "\n"
 

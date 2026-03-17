@@ -6,7 +6,7 @@ open Cil_types
 
 exception ArmException of string
 
-type no_overflow_type = Oadd | Osub | Omul | Odiv
+type no_overflow_type = Oadd | Osub | Omul | Odiv [@@deriving eq]
 
 type arm_predicate =
   (* false *)
@@ -34,10 +34,11 @@ type arm_predicate =
   | Aoverflow of no_overflow_type * arm_term * arm_term
   (* p_fresh *)
   | Aunknown
+[@@deriving eq]
 
 and arm_term = arm_term_node
 and arm_logic_var = string
-and arm_word_size = Word8 | Word16 | Word32 | Word64
+and arm_word_size = Word8 | Word16 | Word32 | Word64 [@@deriving eq]
 
 (** base address of an lvalue. *)
 and arm_term_lhost =
@@ -47,14 +48,9 @@ and arm_term_lhost =
   | ARegister of int * arm_word_size
   (* MEM(s, pointer, size) *)
   | AMemory of arm_term * arm_word_size
+[@@deriving eq]
 
-and arm_term_offset =
-  (* no further offset. *)
-  | ANoOffset
-  (* index. Note that a range is denoted by [TIndex(Trange(i1,i2),ofs)] *)
-  | AIndex of arm_term * arm_term_offset
-
-and arm_term_lval = arm_term_lhost * arm_term_offset
+and arm_term_lval = arm_term_lhost
 and arm_logic_constant = ABoolean of bool | AInteger of string
 
 and arm_term_node =
@@ -73,14 +69,14 @@ and arm_term_node =
       In particular, used to denote lifting to Linteger and Lreal.
   *)
   | ACast of bool * logic_type * arm_term
+[@@deriving eq]
 
 type arm_overflow = arm_predicate option
 type arm_location = Pre | Post
 
 type arm_enviroment = {
-  mutable result : arm_term option;
-  mutable pre_variables : (arm_term * arm_logic_var) list;
-  mutable old : (arm_term * arm_logic_var) list;
+  mutable variables : (arm_logic_var, arm_term) Hashtbl.t;
+  mutable old : (arm_logic_var * arm_term) list;
 }
 
 type arm_contract = {
@@ -123,3 +119,11 @@ let rec simplify (predicate : arm_predicate) : arm_predicate =
   | Aimplies (p1, p2) -> Aimplies (simplify p1, simplify p2)
   | Axor (p1, p2) -> Axor (simplify p1, simplify p2)
   | _ -> predicate
+
+(* Helper to print with Printer for error messages*)
+let pp_spec (f : Format.formatter -> 'a -> unit) (term : 'a) : string =
+  let buf = Buffer.create 0 in
+  let fmt = Format.formatter_of_buffer buf in
+  f fmt term;
+  Format.pp_print_flush fmt ();
+  Buffer.contents buf
