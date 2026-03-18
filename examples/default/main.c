@@ -15,7 +15,7 @@ int64_t max(int64_t x, int64_t y) {
 } 
 
 /*@ 
-    ensures *a == *b;
+    ensures *a == b[1];
 */
 void incrstar(int *a, int* b) {
     *a = 10;

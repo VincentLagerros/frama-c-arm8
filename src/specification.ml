@@ -36,7 +36,15 @@ type arm_predicate =
   | Aunknown
 [@@deriving eq]
 
-and arm_term = arm_term_node
+and arm_type =
+  (* Machine integer of signed + size, corresponding to Ctype TInt *)
+  | AInt of bool * arm_word_size
+  (* A boolean value, corresponding to Lboolean *)
+  | ABool
+  (* A pointer value, corresponding to Ctype TPtr *)
+  | APtr of arm_type
+
+and arm_term = { node : arm_term_node; ty : arm_type }
 and arm_logic_var = string
 and arm_word_size = Word8 | Word16 | Word32 | Word64 [@@deriving eq]
 
@@ -53,6 +61,38 @@ and arm_term_lhost =
 and arm_term_lval = arm_term_lhost
 and arm_logic_constant = ABoolean of bool | AInteger of string
 
+and arm_binop =
+  | APlusA  (** arithmetic + *)
+  | AMinusA  (** arithmetic - *)
+  | AMult  (** * *)
+  | ADiv
+      (** /
+          @see <https://frama-c.com/download/frama-c-plugin-development-guide.pdf>
+      *)
+  | AMod
+      (** %
+          @see <https://frama-c.com/download/frama-c-plugin-development-guide.pdf>
+      *)
+  | AShiftlt  (** shift left *)
+  | AShiftrt  (** shift right *)
+  | ALt  (** < (arithmetic comparison) *)
+  | AGt  (** > (arithmetic comparison) *)
+  | ALe  (** <= (arithmetic comparison) *)
+  | AGe  (** >= (arithmetic comparison) *)
+  | AEq  (** == (arithmetic comparison) *)
+  | ANe  (** != (arithmetic comparison) *)
+  | ABAnd  (** bitwise and *)
+  | ABXor  (** exclusive-or *)
+  | ABOr  (** inclusive-or *)
+  | ALAnd
+      (** logical and. Unlike other operators, this one does not always evaluate
+          both operands. If you want to keep it during normalization, you must
+          set {!Kernel.LogicalOperators}. You can know if the current machine
+          support them via {!Machine.use_logical_operators}. *)
+  | ALOr
+      (** logical or. Like [LAnd] this operator is removed unless
+          {!Kernel.LogicalOperators} is set. *)
+
 and arm_term_node =
   (* a constant. *)
   | AConst of arm_logic_constant
@@ -61,7 +101,7 @@ and arm_term_node =
   (* Stack pointer *)
   | SP
   (* lhs (+, -, *, /, %, <<, >>, <, >, <=, >=, ==, !=, &, ^, |) rhs *)
-  | ABinOp of binop * arm_term * arm_term
+  | ABinOp of arm_binop * arm_term * arm_term
   (* cast to a C type (if bool is false)
       or an implicit conversion from C type to a logic type (if bool is true).
       In the second case:

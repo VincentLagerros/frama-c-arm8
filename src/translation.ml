@@ -5,25 +5,74 @@ open Specification
   To do a sound translation into ARMv8 we first translate it into an intermediate representation, simplfying it in the process.
 *)
 
-let int_to_arm (x : int) : arm_term = AConst (AInteger (Int.to_string x))
+let node_to_term (ty : arm_type) (node : arm_term_node) : arm_term =
+  { node; ty }
+
+let int_node_to_term = node_to_term (AInt (true, Word64))
+let bool_node_to_term = node_to_term ABool
+
+(* Inner pointer type *)
+let pointer_type (ptr : arm_type) : arm_type =
+  match ptr with
+  | APtr x -> x
+  | _ -> raise (ArmException "This type is not a pointer")
+
+let size_of (ty : arm_type) : arm_word_size =
+  match ty with
+  | APtr _ -> Word64
+  | AInt (_, x) -> x
+  | ABool ->
+      raise (ArmException "This type is a bool, and does not have a size")
+
+let max_word (w1 : arm_word_size) (w2 : arm_word_size) : arm_word_size =
+  match (w1, w2) with
+  | Word64, _ | _, Word64 -> Word64
+  | Word32, _ | _, Word32 -> Word32
+  | Word16, _ | _, Word16 -> Word16
+  | _ -> Word8
+
+let binop_ty (ty1 : arm_type) (ty2 : arm_type) : arm_type =
+  match (ty1, ty2) with
+  | ABool, ABool -> ABool
+  | AInt (ty1_signed, ty1_size), AInt (ty2_signed, ty2_size) ->
+      (* Upcast the sign, and size *)
+      AInt (ty1_signed || ty2_signed, max_word ty1_size ty2_size)
+  | _ -> raise (ArmException "Uncomparable types")
+
+let int_to_arm (x : int) : arm_term =
+  node_to_term (AInt (x < 0, Word64)) (AConst (AInteger (Int.to_string x)))
+
 let var_to_arm (x : string) = ALval (AVar x)
 
-let rec type_to_size (typ : typ) =
+let rec typ_to_arm (typ : typ) : arm_type =
   match typ.tnode with
   | TVoid -> raise (ArmException "Cant use void result a contract")
-  | TInt IBool | TInt IChar | TInt IUChar -> Word8
-  | TInt IShort | TInt IUShort -> Word16
-  | TInt IInt | TInt IUInt -> Word32
-  | TInt ILong | TInt IULong | TInt ILongLong | TInt IULongLong | TPtr _ ->
-      Word64
-  | TNamed info -> type_to_size info.ttype
+  | TPtr typ -> APtr (typ_to_arm typ)
+  | TInt IBool | TInt IUChar -> AInt (false, Word8)
+  | TInt IChar -> AInt (true, Word8)
+  | TInt IUShort -> AInt (false, Word16)
+  | TInt IShort -> AInt (true, Word16)
+  | TInt IUInt -> AInt (false, Word32)
+  | TInt IInt -> AInt (true, Word32)
+  | TInt IULong | TInt IULongLong -> AInt (false, Word64)
+  | TInt ILong | TInt ILongLong -> AInt (true, Word64)
+  | TNamed info -> typ_to_arm info.ttype
   | TFloat _ -> raise (ArmException "Floats are not supported by L3")
   | TFun _ -> raise (ArmException "Functions are not supported")
-  | _ -> raise (ArmException "Unknown env_result")
+  | _ -> raise (ArmException "Unknown typ_to_arm")
+
+let logic_type_to_arm (logic_type : logic_type) : arm_type =
+  match logic_type with
+  | Ctype typ -> typ_to_arm typ
+  | Lboolean -> ABool
+  | Linteger -> AInt (true, Word64)
+  | _ -> raise (ArmException "Unknown logic_type_to_arm")
+
+let typ_to_size (typ : typ) = typ |> typ_to_arm |> size_of
 
 let logic_type_to_size (logic_type : logic_type) =
   match logic_type with
-  | Ctype typ -> type_to_size typ
+  | Ctype typ -> typ_to_size typ
   | _ ->
       raise
         (ArmException
@@ -36,13 +85,12 @@ let word_to_bytes (size : arm_word_size) : int =
 let logic_type_to_bytes (logic_type : logic_type) : int =
   logic_type_to_size logic_type |> word_to_bytes
 
-let typ_to_bytes (typ : typ) : int = type_to_size typ |> word_to_bytes
+let typ_to_bytes (typ : typ) : int = typ_to_size typ |> word_to_bytes
 
 let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
   match term.term_node with
-  | TConst logical -> AConst (logical_to_arm env logical)
-  | TBinOp (op, lhs, rhs) ->
-      ABinOp (op, term_to_arm env lhs, term_to_arm env rhs)
+  | TConst logical -> logical_to_arm env logical
+  | TBinOp (op, lhs, rhs) -> binop_to_arm env op lhs rhs
   | TLval (host, offset) -> l_value_to_arm env host offset
   | Tat (term, label) -> at_to_arm env term label
   | TSizeOf typ -> typ_to_bytes typ |> int_to_arm
@@ -67,6 +115,29 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
            (Format.sprintf "Unknown term_to_arm %s"
               (pp_spec Printer.pp_term term)))
 
+and binop_to_arm (env : arm_enviroment) (op : binop) (lhs : term) (rhs : term) :
+    arm_term =
+  let lhs_t = term_to_arm env lhs in
+  let rhs_t = term_to_arm env rhs in
+
+  match op with
+  | Mult ->
+      node_to_term (binop_ty lhs_t.ty rhs_t.ty) (ABinOp (AMult, lhs_t, rhs_t))
+  | PlusA ->
+      node_to_term (binop_ty lhs_t.ty rhs_t.ty) (ABinOp (APlusA, lhs_t, rhs_t))
+  (* Adding an integer to a pointer is the equavalent of (uint64_t)lhs + rhs*size_of( *lhs ) *)
+  | PlusPI ->
+      let ty = pointer_type lhs_t.ty in
+      node_to_term ty
+        (ABinOp
+           ( APlusA,
+             lhs_t,
+             node_to_term ty
+               (ABinOp
+                  (AMult, rhs_t, ty |> size_of |> word_to_bytes |> int_to_arm))
+           ))
+  | _ -> raise (ArmException "Unknwon binary operator")
+
 and at_to_arm (env : arm_enviroment) (term : term) (label : logic_label) :
     arm_term =
   match label with
@@ -90,10 +161,13 @@ and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
     match lhost with
     | TVar logical_var -> logic_var_to_arm env logical_var
     | TMem term ->
-        ALval
-          (AMemory (term_to_arm env term, logic_type_to_size term.term_type))
+        node_to_term
+          (logic_type_to_arm term.term_type)
+          (ALval
+             (AMemory (term_to_arm env term, logic_type_to_size term.term_type)))
     (* We can be sure this is only in a post-context as otherwise you will get "\result meaningless" error from wp *)
-    | TResult typ -> ALval (ARegister (0, type_to_size typ))
+    | TResult typ ->
+        node_to_term (typ_to_arm typ) (ALval (ARegister (0, typ_to_size typ)))
 (*
 
       match offset with
@@ -123,19 +197,19 @@ and env_old (env : arm_enviroment) (term : term) : arm_term =
 
     If we need perf then just make this into a hashmap
   *)
-  match List.find_opt (fun (_name, term) -> term == t) env.old with
-  | Some (name, _) -> var_to_arm name
-  | None ->
-      let length = List.length env.old in
-      let name = Printf.sprintf "old_%d" length in
-      env.old <- (name, t) :: env.old;
-      var_to_arm name
+  node_to_term t.ty
+    (match List.find_opt (fun (_name, term) -> term == t) env.old with
+    | Some (name, _) -> var_to_arm name
+    | None ->
+        let length = List.length env.old in
+        let name = Printf.sprintf "old_%d" length in
+        env.old <- (name, t) :: env.old;
+        var_to_arm name)
 
-and logical_to_arm (_ : arm_enviroment) (logical : logic_constant) :
-    arm_logic_constant =
+and logical_to_arm (_ : arm_enviroment) (logical : logic_constant) : arm_term =
   match logical with
-  | Boolean b -> ABoolean b
-  | Integer (i, _) -> AInteger (Z.to_string i)
+  | Boolean b -> bool_node_to_term (AConst (ABoolean b))
+  | Integer (i, _) -> int_node_to_term (AConst (AInteger (Z.to_string i)))
   | _ -> raise (ArmException "Unknown logical_to_arm")
 
 (* TODO support -absolute-valid-range for a range of supported values instead of HOL *)
@@ -169,8 +243,12 @@ let valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
               Arel (Rlt, arm_term, int_to_arm 0x100000000) ),
           Arel
             ( Req,
-              ABinOp
-                (Mod, arm_term, int_to_arm (logic_type_to_bytes term.term_type)),
+              (* Keep the type*)
+              node_to_term arm_term.ty
+                (ABinOp
+                   ( AMod,
+                     arm_term,
+                     int_to_arm (logic_type_to_bytes term.term_type) )),
               int_to_arm 0 ) )
   | BuiltinLabel _ ->
       raise
@@ -193,7 +271,10 @@ let rec predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
       Aif (term_to_arm env c, predicate_to_arm env p1, predicate_to_arm env p2)
   | Paligned (t1, t2) ->
       Arel
-        (Req, ABinOp (Mod, term_to_arm env t1, term_to_arm env t2), int_to_arm 0)
+        ( Req,
+          node_to_term ABool
+            (ABinOp (AMod, term_to_arm env t1, term_to_arm env t2)),
+          int_to_arm 0 )
       (* Even if valid_read != valid, for our purposes it is equivalent as we have no restrictions on write/read *)
   | Pvalid (label, term) | Pvalid_read (label, term) ->
       valid_to_arm env label term
@@ -226,15 +307,24 @@ let behavior_to_arm (env : arm_enviroment) (fn : funbehavior) : arm_contract =
 
 let varinfo_to_arm (index : int) (varinfo : varinfo) : arm_logic_var * arm_term
     =
-  let size = type_to_size varinfo.vtype in
+  let size = typ_to_size varinfo.vtype in
   ( varinfo.vorig_name,
-    ALval
-      (if index <= 7 then
-         (* REG(s, i) *)
-         ARegister (index, size)
-       else
-         (* MEM(s, SP + (i - 8), size) *)
-         AMemory (ABinOp (PlusPI, SP, int_to_arm (index - 8)), size)) )
+    node_to_term (typ_to_arm varinfo.vtype)
+      (ALval
+         (* First 8 are passed in the registers x0-x7 *)
+         (if index < 8 then
+            (* REG(s, i) *)
+            ARegister (index, size)
+          else
+            (* MEM(s, SP + (i - 8), size) *)
+            AMemory
+              ( node_to_term
+                  (AInt (false, Word64))
+                  (ABinOp
+                     ( APlusA,
+                       node_to_term (AInt (false, Word64)) SP,
+                       int_to_arm ((index - 8) * 8) )),
+                size ))) )
 
 let fn_vars_to_arm (args : varinfo list) : (arm_logic_var * arm_term) list =
   List.mapi varinfo_to_arm args

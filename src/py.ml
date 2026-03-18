@@ -55,25 +55,27 @@ let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
 (*
   | _ -> raise (ArmException "Unknown pp_arm_lvalue")*)
 
-and pp_arm_binop (out : contract_printer) (op : binop) (lhs : arm_term)
+and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
     (rhs : arm_term) : unit =
   let infix =
     (* TODO bitwise operations on bitvectors! as z3 does not support bit operations on integers? *)
     match op with
-    | PlusA -> "+"
-    | MinusA -> "-"
-    | Mult -> "*"
-    | Div -> "/"
-    | Mod -> "%"
-    | PlusPI -> "?"
+    | APlusA -> "+"
+    | AMinusA -> "-"
+    | AMult -> "*"
+    | ADiv -> "/"
+    | AMod -> "%"
     | _ -> raise (ArmException "Unknown pp_arm_binop")
   in
+
+  Format.fprintf out.fmt "(";
   pp_arm_term out lhs;
   Format.fprintf out.fmt " %s " infix;
-  pp_arm_term out rhs
+  pp_arm_term out rhs;
+  Format.fprintf out.fmt ")"
 
 and pp_arm_term (out : contract_printer) (term : arm_term) =
-  match term with
+  match term.node with
   | AConst logical -> pp_arm_logical_constant out logical
   | ABinOp (op, lhs, rhs) -> pp_arm_binop out op lhs rhs
   | ALval host -> pp_arm_lvalue out host
@@ -168,7 +170,9 @@ let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
 
 let add_variable (term : arm_term) (name : arm_logic_var)
     (predicate : arm_predicate) =
-  Aand (predicate, Arel (Req, Translation.var_to_arm name, term))
+  Aand
+    ( predicate,
+      Arel (Req, node_to_term term.ty (Translation.var_to_arm name), term) )
 
 let add_variables (variables : (arm_logic_var * arm_term) list)
     (predicate : arm_predicate) =
