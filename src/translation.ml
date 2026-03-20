@@ -37,6 +37,9 @@ let binop_ty (ty1 : arm_type) (ty2 : arm_type) : arm_type =
   | AInt (ty1_signed, ty1_size), AInt (ty2_signed, ty2_size) ->
       (* Upcast the sign, and size *)
       AInt (ty1_signed || ty2_signed, max_word ty1_size ty2_size)
+  | APtr a, APtr b ->
+      if a == b then APtr a
+      else raise (ArmException "Uncomparable pointer types")
   | _ -> raise (ArmException "Uncomparable types")
 
 let int_to_arm (x : int) : arm_term =
@@ -92,14 +95,11 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
   | TConst logical -> logical_to_arm env logical
   | TBinOp (op, lhs, rhs) -> binop_to_arm env op lhs rhs
   | TLval (host, offset) -> l_value_to_arm env host offset
-  | Tat (term, label) -> at_to_arm env term label
-  | TSizeOf typ -> typ_to_bytes typ |> int_to_arm
-  (*| Tlet (logical_info, term) ->
-      TODO let binding with logical info, also for let predicates, from looking at it let is more used in predicates
-
-      Hashtbl.add env.variables logical_info.l_var_info.lv_name (linfo_to_arm logical_info);
-      term_to_arm env term
-      *)
+  | Tat (t, label) -> at_to_arm env t label
+  (* Align and sizeof is the same on ARMv8 for primative types *)
+  | TSizeOf typ | TAlignOf typ -> typ_to_bytes typ |> int_to_arm
+  | TAddrOf (host, offset) -> address_of_l_value env host offset
+  | Tlet (x, t) -> let_term env x (fun local_env -> term_to_arm local_env t)
   (* a shortcut for (void ptr)0 *)
   | Tnull -> int_to_arm 0
   | TCast (is_implicit_conversion, convert_to_type, term) ->
@@ -115,28 +115,76 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
            (Format.sprintf "Unknown term_to_arm %s"
               (pp_spec Printer.pp_term term)))
 
+and address_of_l_value (_env : arm_enviroment) (lhost : term_lhost)
+    (offset : term_offset) : arm_term =
+  if offset != TNoOffset then raise (ArmException "Unsupported index operation")
+  else
+    match lhost with
+    | TMem term ->
+        raise
+          (ArmException
+             (Format.sprintf "Unknown address_of_l_value %s"
+                (pp_spec Printer.pp_term term)))
+        (*term_to_arm env term*)
+    | _ -> raise (ArmException "Unsupported address of lvalue")
+
 and binop_to_arm (env : arm_enviroment) (op : binop) (lhs : term) (rhs : term) :
     arm_term =
   let lhs_t = term_to_arm env lhs in
   let rhs_t = term_to_arm env rhs in
 
   match op with
-  | Mult ->
-      node_to_term (binop_ty lhs_t.ty rhs_t.ty) (ABinOp (AMult, lhs_t, rhs_t))
-  | PlusA ->
-      node_to_term (binop_ty lhs_t.ty rhs_t.ty) (ABinOp (APlusA, lhs_t, rhs_t))
+  | Mod | Div | Mult | PlusA | MinusA | Shiftlt | Shiftrt | BAnd | BOr | BXor ->
+      (* For basic ops we can just do the trivial operations *)
+      let inner_op =
+        match op with
+        | Div -> ADiv
+        | Mod -> AMod
+        | Mult -> AMult
+        | PlusA -> APlusA
+        | MinusA -> AMinusA
+        | Shiftlt -> AShiftlt
+        | Shiftrt -> AShiftrt
+        | BAnd -> ABAnd
+        | BXor -> ABXor
+        | BOr -> ABOr
+        | _ ->
+            raise
+              (ArmException
+                 "binop_to_arm inner op does not exist, this should never \
+                  happend")
+      in
+      node_to_term
+        (binop_ty lhs_t.ty rhs_t.ty)
+        (ABinOp (inner_op, lhs_t, rhs_t))
   (* Adding an integer to a pointer is the equavalent of (uint64_t)lhs + rhs*size_of( *lhs ) *)
-  | PlusPI ->
+  | PlusPI | MinusPI ->
+      let inner_op =
+        match op with
+        | PlusPI -> APlusA
+        | MinusPI -> AMinusA
+        | _ ->
+            raise
+              (ArmException
+                 "binop_to_arm inner op does not exist, this should never \
+                  happend")
+      in
+
+      (* Keep the outer pointer type *)
       let ty = pointer_type lhs_t.ty in
-      node_to_term ty
+      node_to_term lhs_t.ty
         (ABinOp
-           ( APlusA,
+           ( inner_op,
              lhs_t,
              node_to_term ty
                (ABinOp
                   (AMult, rhs_t, ty |> size_of |> word_to_bytes |> int_to_arm))
            ))
-  | _ -> raise (ArmException "Unknwon binary operator")
+  | _ ->
+      raise
+        (ArmException
+           (Format.sprintf "Unknown binary operator '%s'"
+              (pp_spec Printer.pp_binop op)))
 
 and at_to_arm (env : arm_enviroment) (term : term) (label : logic_label) :
     arm_term =
@@ -159,6 +207,7 @@ and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
   if offset != TNoOffset then raise (ArmException "Unsupported index operation")
   else
     match lhost with
+    (* TODO, *&x can smuggle variables into the post-state, we need to check that we are in an \old state to do this! *)
     | TVar logical_var -> logic_var_to_arm env logical_var
     | TMem term ->
         node_to_term
@@ -168,24 +217,6 @@ and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
     (* We can be sure this is only in a post-context as otherwise you will get "\result meaningless" error from wp *)
     | TResult typ ->
         node_to_term (typ_to_arm typ) (ALval (ARegister (0, typ_to_size typ)))
-(*
-
-      match offset with
-      | TNoOffset -> term
-      | TIndex(_index_term, _index_offset) ->
-        raise (ArmException "test1")
-          (*ALval
-            (AMemory (term_to_arm env term, logic_type_to_size term.term_type))*)
-      | _ -> raise (ArmException "test"))
-
-in
-  let (offset : arm_term_offset) =
-    match offset with
-    | TNoOffset -> ANoOffset
-    | TIndex (term, TNoOffset) -> AIndex (term_to_arm env term, ANoOffset)
-    | _ -> raise (ArmException "Unknown l_value_to_arm offset")
-  in
-  ALval new_host*)
 
 (* Puts the term into enviroment old, and returns the bound variable *)
 and env_old (env : arm_enviroment) (term : term) : arm_term =
@@ -214,7 +245,7 @@ and logical_to_arm (_ : arm_enviroment) (logical : logic_constant) : arm_term =
 
 (* TODO support -absolute-valid-range for a range of supported values instead of HOL *)
 (* TODO valid range as, "ACSL built-in predicate \valid (p) is now equivalent to \validrange (p,0,0)." *)
-let valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
+and valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
     arm_predicate =
   match label with
   | StmtLabel _ -> raise (ArmException "\\valid is not supported with C labels")
@@ -255,7 +286,7 @@ let valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
         (ArmException
            "\\valid is not supported with logic labels other than 'here'")
 
-let rec predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
+and predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
     arm_predicate =
   match predicate.pred_content with
   | Pfalse -> Afalse
@@ -269,6 +300,8 @@ let rec predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
   | Pnot p -> Anot (predicate_to_arm env p)
   | Pif (c, p1, p2) ->
       Aif (term_to_arm env c, predicate_to_arm env p1, predicate_to_arm env p2)
+  | Plet (x, p) ->
+      let_predicate env x (fun local_env -> predicate_to_arm local_env p)
   | Paligned (t1, t2) ->
       Arel
         ( Req,
@@ -276,8 +309,7 @@ let rec predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
             (ABinOp (AMod, term_to_arm env t1, term_to_arm env t2)),
           int_to_arm 0 )
       (* Even if valid_read != valid, for our purposes it is equivalent as we have no restrictions on write/read *)
-  | Pvalid (label, term) | Pvalid_read (label, term) ->
-      valid_to_arm env label term
+  | Pvalid (label, t) | Pvalid_read (label, t) -> valid_to_arm env label t
   | Prel (rel, t1, t2) ->
       Arel (rel, term_to_arm env t1, term_to_arm env t2)
       (* TODO overflow *)
@@ -285,6 +317,47 @@ let rec predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
         Aif (Aand (no_overflow_of_term a, no_overflow_of_term b), out, Aunknown)
       else out*)
   | _ -> raise (ArmException "Unknown predicate_to_arm_predicate")
+
+and let_predicate (env : arm_enviroment) (info : logic_info)
+    (fn : arm_enviroment -> arm_predicate) : arm_predicate =
+  match info.l_body with
+  (* 
+    Adds the let variable in the local enviroment, and then removes it. 
+    Hashtbl automaticlly shadows the variable in case of duplicates 
+  *)
+  | LBpred predicate ->
+      let arm_predicate = predicate_to_arm env predicate in
+      Hashtbl.add env.predicates info.l_var_info.lv_name arm_predicate;
+      let (result : 'a) = fn env in
+      Hashtbl.remove env.predicates info.l_var_info.lv_name;
+      result
+  | LBterm term ->
+      let arm_term = term_to_arm env term in
+      Hashtbl.add env.variables info.l_var_info.lv_name arm_term;
+      let result = fn env in
+      Hashtbl.remove env.variables info.l_var_info.lv_name;
+      result
+  | _ ->
+      raise
+        (ArmException
+           (Format.sprintf "Unknown let_predicate %s"
+              (pp_spec Printer.pp_logic_info info)))
+
+(* Generics for higher order functions are weird, so I have to duplicate it *)
+and let_term (env : arm_enviroment) (info : logic_info)
+    (fn : arm_enviroment -> arm_term) : arm_term =
+  match info.l_body with
+  | LBterm term ->
+      let arm_term = term_to_arm env term in
+      Hashtbl.add env.variables info.l_var_info.lv_name arm_term;
+      let result = fn env in
+      Hashtbl.remove env.variables info.l_var_info.lv_name;
+      result
+  | _ ->
+      raise
+        (ArmException
+           (Format.sprintf "Unknown let_term %s"
+              (pp_spec Printer.pp_logic_info info)))
 
 (* Fold list acsl predicates into a single arm predicate using and *)
 let identified_predicate_list_to_arm (env : arm_enviroment)
@@ -334,7 +407,7 @@ let sformals_to_env (fn : fundec) : arm_enviroment =
   let table = Hashtbl.create (List.length arguments) in
   (* All variables are substituted like "Contract-Based Verification in TriCera" *)
   List.iter (fun (key, value) -> Hashtbl.add table key value) arguments;
-  { variables = table; old = [] }
+  { variables = table; predicates = Hashtbl.create 0; old = [] }
 
 let fn_to_arm (fn : fundec) : arm_contract =
   let kf = Globals.Functions.get fn.svar in

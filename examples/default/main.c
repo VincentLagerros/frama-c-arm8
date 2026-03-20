@@ -12,12 +12,23 @@ int64_t max(int64_t x, int64_t y) {
     } else {
         return y;
     }
-} 
+}
 
-/*@ 
-    ensures *a == b[1];
+/*@
+    requires \valid(p);
+    requires \valid(q);
+
+    assigns \nothing;
+    
+    ensures (\result == *p) || (\result == *q);
+    
+    ensures \result >= *p;
+    ensures \result >= *q;
 */
-void incrstar(int *a, int* b) {
-    *a = 10;
-    *b = 10;
+int max_ptr(int* p, int* q) {
+    if (*p >= *q) {
+        return *p;
+    } else {
+        return *q;
+    }
 }

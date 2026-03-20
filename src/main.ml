@@ -74,6 +74,11 @@ let print_function_regular (out : Format.formatter) (fn : fundec) =
   let _behaviors = Annotations.behaviors kf in
 
   Format.fprintf out "\n# ==== Function %s ====\n" fn.svar.vname;
+  let sp = Annotations.funspec kf in
+  List.iter (fun st -> Printer.pp_behavior out st) sp.spec_behavior;
+  Format.fprintf out "@.";
+
+
   let contract = Translation.fn_to_arm fn in
   Py.print_contract out contract;
   Format.fprintf out "@."
