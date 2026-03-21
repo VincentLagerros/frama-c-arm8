@@ -43,7 +43,6 @@ let pp_arm_logical_constant (out : contract_printer)
 let pp_logic_var (out : contract_printer) (var : arm_logic_var) =
   Format.fprintf out.fmt "%s" var
 
-(* TODO offset! *)
 let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
   match host with
   | AVar v -> pp_logic_var out v
@@ -65,7 +64,19 @@ and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
     | AMult -> "*"
     | ADiv -> "/"
     | AMod -> "%"
-    | _ -> raise (ArmException "Unknown pp_arm_binop")
+    | AEq -> "=="
+    | ANe -> "!="
+    | ALOr -> "or"
+    | ALAnd -> "and"
+    | ABAnd -> "&"
+    | ABOr -> "|"
+    | ABXor -> "^"
+    | AShiftlt -> "<<"
+    | AShiftrt -> ">>"
+    | ALt -> "<"
+    | AGt -> ">"
+    | AGe -> ">="
+    | ALe -> "<="
   in
 
   Format.fprintf out.fmt "(";

@@ -115,12 +115,16 @@ type arm_overflow = arm_predicate option
 type arm_location = Pre | Post
 
 type arm_enviroment = {
-  (* Used for arguments, and \let terms *)
-  mutable variables : (arm_logic_var, arm_term) Hashtbl.t;
+  (* Used for arguments, and \let terms. V[name] -> location * term; 
+  here location is used for arguments, as arguments can be in the Pre-State but only be accessed in the post state with a \old   *)
+  mutable variables : (arm_logic_var, arm_location * arm_term) Hashtbl.t;
   (* Used for \let predicates *)
   mutable predicates : (arm_logic_var, arm_predicate) Hashtbl.t;
   (* Used for \old as we only want to calculate old in the pre context *)
   mutable old : (arm_logic_var * arm_term) list;
+  (* This is used to keep track of what context we are currently in, 
+  as it is possible to smuggle variables to the post-state with *&x circumventing the implicit \old*)
+  mutable at : arm_location;
 }
 
 type arm_contract = {

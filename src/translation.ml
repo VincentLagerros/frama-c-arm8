@@ -134,6 +134,25 @@ and binop_to_arm (env : arm_enviroment) (op : binop) (lhs : term) (rhs : term) :
   let rhs_t = term_to_arm env rhs in
 
   match op with
+  | Lt | Gt | Le | Ge | Eq | Ne | LAnd | LOr ->
+      (* For basic ops we can just do the trivial operations *)
+      let inner_op =
+        match op with
+        | Lt -> ALe
+        | Gt -> AGt
+        | Le -> ALe
+        | Ge -> AGe
+        | Eq -> AEq
+        | Ne -> ANe
+        | LAnd -> ALAnd
+        | LOr -> ALOr
+        | _ ->
+            raise
+              (ArmException
+                 "binop_to_arm inner op does not exist, this should never \
+                  happend")
+      in
+      node_to_term ABool (ABinOp (inner_op, lhs_t, rhs_t))
   | Mod | Div | Mult | PlusA | MinusA | Shiftlt | Shiftrt | BAnd | BOr | BXor ->
       (* For basic ops we can just do the trivial operations *)
       let inner_op =
@@ -180,11 +199,23 @@ and binop_to_arm (env : arm_enviroment) (op : binop) (lhs : term) (rhs : term) :
                (ABinOp
                   (AMult, rhs_t, ty |> size_of |> word_to_bytes |> int_to_arm))
            ))
-  | _ ->
+  | MinusPP ->
+      (* a - b means, how many items they are apart, not bytes. So we represent that with `((uint64_t)a-(uint64_t)b) / sizeof( *a )` *)
+      let ty = pointer_type lhs_t.ty in
+
+      node_to_term
+        (AInt (false, Word64))
+        (ABinOp
+           ( ADiv,
+             node_to_term
+               (AInt (false, Word64))
+               (ABinOp (AMinusA, lhs_t, rhs_t)),
+             ty |> size_of |> word_to_bytes |> int_to_arm ))
+(*| _ ->
       raise
         (ArmException
            (Format.sprintf "Unknown binary operator '%s'"
-              (pp_spec Printer.pp_binop op)))
+              (pp_spec Printer.pp_binop op)))*)
 
 and at_to_arm (env : arm_enviroment) (term : term) (label : logic_label) :
     arm_term =
@@ -199,15 +230,23 @@ and cast_to_arm (env : arm_enviroment) (_is_implicit_conversion : bool)
   term_to_arm env term
 
 and logic_var_to_arm (env : arm_enviroment) (lvar : logic_var) : arm_term =
-  Hashtbl.find env.variables lvar.lv_name
+  let location, out = Hashtbl.find env.variables lvar.lv_name in
 
-(* TODO result type with signed + unsigned? *)
+  (* *&x can smuggle variables into the post-state, we need to check that we are in an \old state to do this! *)
+  match (env.at, location) with
+  | Post, Pre ->
+      raise
+        (ArmException
+           "Unable to refer to variables declared in the pre-condition when in \
+            the post-condition")
+  (* The other way around is fine, as \let x; \old(x + 1) is fine. *)
+  | _ -> out
+
 and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
     (offset : term_offset) : arm_term =
   if offset != TNoOffset then raise (ArmException "Unsupported index operation")
   else
     match lhost with
-    (* TODO, *&x can smuggle variables into the post-state, we need to check that we are in an \old state to do this! *)
     | TVar logical_var -> logic_var_to_arm env logical_var
     | TMem term ->
         node_to_term
@@ -220,7 +259,10 @@ and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
 
 (* Puts the term into enviroment old, and returns the bound variable *)
 and env_old (env : arm_enviroment) (term : term) : arm_term =
+  let old_env = env.at in
+  env.at <- Pre;
   let t = term_to_arm env term in
+  env.at <- old_env;
 
   (*
     We dedup on terms, so we do not fill it up with the same argument all the time, 
@@ -333,7 +375,7 @@ and let_predicate (env : arm_enviroment) (info : logic_info)
       result
   | LBterm term ->
       let arm_term = term_to_arm env term in
-      Hashtbl.add env.variables info.l_var_info.lv_name arm_term;
+      Hashtbl.add env.variables info.l_var_info.lv_name (env.at, arm_term);
       let result = fn env in
       Hashtbl.remove env.variables info.l_var_info.lv_name;
       result
@@ -349,7 +391,7 @@ and let_term (env : arm_enviroment) (info : logic_info)
   match info.l_body with
   | LBterm term ->
       let arm_term = term_to_arm env term in
-      Hashtbl.add env.variables info.l_var_info.lv_name arm_term;
+      Hashtbl.add env.variables info.l_var_info.lv_name (env.at, arm_term);
       let result = fn env in
       Hashtbl.remove env.variables info.l_var_info.lv_name;
       result
@@ -369,12 +411,18 @@ let identified_predicate_list_to_arm (env : arm_enviroment)
     Atrue list
 
 let behavior_to_arm (env : arm_enviroment) (fn : funbehavior) : arm_contract =
+  env.at <- Post;
+  let ensures =
+    identified_predicate_list_to_arm env
+      (List.map (fun (_term, item) -> item) fn.b_post_cond)
+  in
+  env.at <- Pre;
+  let requires = identified_predicate_list_to_arm env fn.b_requires in
+
   {
     (* todo termination with termination_kind? *)
-    ensures =
-      identified_predicate_list_to_arm env
-        (List.map (fun (_term, item) -> item) fn.b_post_cond);
-    requires = identified_predicate_list_to_arm env fn.b_requires;
+    ensures;
+    requires;
     enviroment = env;
   }
 
@@ -406,8 +454,8 @@ let sformals_to_env (fn : fundec) : arm_enviroment =
   let arguments = fn_vars_to_arm fn.sformals in
   let table = Hashtbl.create (List.length arguments) in
   (* All variables are substituted like "Contract-Based Verification in TriCera" *)
-  List.iter (fun (key, value) -> Hashtbl.add table key value) arguments;
-  { variables = table; predicates = Hashtbl.create 0; old = [] }
+  List.iter (fun (key, value) -> Hashtbl.add table key (Pre, value)) arguments;
+  { variables = table; predicates = Hashtbl.create 0; old = []; at = Pre }
 
 let fn_to_arm (fn : fundec) : arm_contract =
   let kf = Globals.Functions.get fn.svar in
