@@ -102,13 +102,6 @@ and arm_term_node =
   | SP
   (* lhs (+, -, *, /, %, <<, >>, <, >, <=, >=, ==, !=, &, ^, |) rhs *)
   | ABinOp of arm_binop * arm_term * arm_term
-  (* cast to a C type (if bool is false)
-      or an implicit conversion from C type to a logic type (if bool is true).
-      In the second case:
-      The logic type must not be a Ctype.
-      In particular, used to denote lifting to Linteger and Lreal.
-  *)
-  | ACast of bool * logic_type * arm_term
 [@@deriving eq]
 
 type arm_overflow = arm_predicate option
@@ -117,7 +110,7 @@ type arm_location = Pre | Post
 type arm_enviroment = {
   (* Used for arguments, and \let terms. V[name] -> location * term; 
   here location is used for arguments, as arguments can be in the Pre-State but only be accessed in the post state with a \old   *)
-  mutable variables : (arm_logic_var, arm_location * arm_term) Hashtbl.t;
+  mutable variables : (arm_logic_var, arm_location * arm_term_node) Hashtbl.t;
   (* Used for \let predicates *)
   mutable predicates : (arm_logic_var, arm_predicate) Hashtbl.t;
   (* Used for \old as we only want to calculate old in the pre context *)

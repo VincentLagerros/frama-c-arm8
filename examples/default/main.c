@@ -14,21 +14,21 @@ int64_t max(int64_t x, int64_t y) {
     }
 }
 
-/*@
-    requires \valid(p);
-    requires \valid(q);
-
-    assigns \nothing;
-    
-    ensures (\result == *p) || (\result == *q);
-    
-    ensures \result >= *p;
-    ensures \result >= *q;
-*/
-int max_ptr(int* p, int* q) {
-    if (*p >= *q) {
-        return *p;
-    } else {
-        return *q;
-    }
-}
+// /*@
+//     requires \valid(p);
+//     requires \valid(q);
+// 
+//     assigns \nothing;
+//     
+//     ensures (\result == *p) || (\result == *q);
+//     
+//     ensures \result >= *p;
+//     ensures \result >= *q;
+// */
+// int max_ptr(int* p, int* q) {
+//     if (*p >= *q) {
+//         return *p;
+//     } else {
+//         return *q;
+//     }
+// }

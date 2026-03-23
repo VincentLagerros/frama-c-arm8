@@ -25,36 +25,29 @@ print("====== Checking the contract with Z3 ======")
 
 # ==== Function max ====
 
-# Pre Variables
-x = Int('x')
-y = Int('y')
-
 # Old Variables
-old_3 = Int('old_3')
-old_2 = Int('old_2')
-old_1 = Int('old_1')
-old_0 = Int('old_0')
+old_1 = BitVec('old_1', 64)
+old_0 = BitVec('old_0', 64)
 
 # Pre State
-REG = Array('REG(s)', IntSort(), IntSort())
-MEM = Array('MEM(s)', IntSort(), IntSort())
+REG = Array('REG(s)', BitVecSort(64), BitVecSort(64))
+MEM = Array('MEM(s)', BitVecSort(64), BitVecSort(64))
 
 # Pre Contract
-PreVar = And(x == REG[0], y == REG[1])
-OldVar = And(And(And(old_3 == y, old_2 == x), old_1 == x), old_0 == y)
+OldVar = And(old_1 == REG[0], old_0 == REG[1])
 Requires = True
 
 # Post State
-REG = Array('REG(s\')', IntSort(), IntSort())
-MEM = Array('MEM(s\')', IntSort(), IntSort())
+REG = Array('REG(s\')', BitVecSort(64), BitVecSort(64))
+MEM = Array('MEM(s\')', BitVecSort(64), BitVecSort(64))
 
 # Post Contract
-Ensures = And(And(Or(REG[0] == old_1, REG[0] == old_0), REG[0] >= old_2), REG[0] >= old_3)
+Ensures = And(And(Or(REG[0] == old_1, REG[0] == old_0), REG[0] >= old_1), REG[0] >= old_0)
 
 # Bindings
-P = And(PreVar, OldVar, Requires)
+P = And(OldVar, Requires)
 R = Ensures
 
 # Manually written
-Q = REG[0] == If(x > y, x, y)
+Q = REG[0] == If(old_1 > old_0, old_1, old_0)
 try_contract("max", P, Q, R)

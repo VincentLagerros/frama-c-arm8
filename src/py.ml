@@ -51,13 +51,10 @@ let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
       Format.fprintf out.fmt "MEM[";
       pp_arm_term out at;
       Format.fprintf out.fmt "]"
-(*
-  | _ -> raise (ArmException "Unknown pp_arm_lvalue")*)
 
 and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
     (rhs : arm_term) : unit =
   let infix =
-    (* TODO bitwise operations on bitvectors! as z3 does not support bit operations on integers? *)
     match op with
     | APlusA -> "+"
     | AMinusA -> "-"
@@ -90,9 +87,6 @@ and pp_arm_term (out : contract_printer) (term : arm_term) =
   | AConst logical -> pp_arm_logical_constant out logical
   | ABinOp (op, lhs, rhs) -> pp_arm_binop out op lhs rhs
   | ALval host -> pp_arm_lvalue out host
-  | ACast (_is_implicit_conversion, _convert_to_type, term) ->
-      (*TODO cast correctly*)
-      pp_arm_term out term
   | SP -> Format.fprintf out.fmt "SP"
 (*| _ ->
       (*Format.fprintf out.fmt "<<<<";
@@ -164,19 +158,47 @@ let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
       pp_arm_predicate out p2;
       Format.fprintf fmt ")"
   | Arel (rel, t1, t2) ->
-      (* TODO unsigned *)
-      let cmp =
-        match rel with
-        | Rlt -> "<"
-        | Rge -> ">="
-        | Rle -> "<="
-        | Rgt -> ">"
-        | Rneq -> "!="
-        | Req -> "=="
+      let signed =
+        match t1.ty with
+        | AInt (signed, _) -> signed
+        (* any* == uint64_t *)
+        | APtr _ -> false
+        (* We use infix operators here, so the same as signed *)
+        | ABool -> true
       in
-      pp_arm_term out t1;
-      Format.fprintf fmt " %s " cmp;
-      pp_arm_term out t2
+
+      let op, infix =
+        if signed then
+          ( (match rel with
+            | Rlt -> "<"
+            | Rge -> ">="
+            | Rle -> "<="
+            | Rgt -> ">"
+            | Rneq -> "!="
+            | Req -> "=="),
+            true )
+        else
+          match rel with
+          | Rlt -> ("ULT", false)
+          | Rge -> ("UGE", false)
+          | Rle -> ("ULE", false)
+          | Rgt -> ("UGT", false)
+          | Rneq -> ("!=", true)
+          | Req -> ("==", true)
+      in
+
+      if infix then (
+        Format.fprintf fmt "(";
+        pp_arm_term out t1;
+        Format.fprintf fmt " %s " op;
+        pp_arm_term out t2;
+        Format.fprintf fmt ")")
+      else (
+        Format.fprintf fmt "%s(" op;
+        pp_arm_term out t1;
+        Format.fprintf fmt ", ";
+        pp_arm_term out t2;
+        Format.fprintf fmt ")")
   | _ -> raise (ArmException "Unknown pp_arm_predicate")
 
 let add_variable (term : arm_term) (name : arm_logic_var)
@@ -196,12 +218,12 @@ let print_contract (out : Format.formatter) (contract : arm_contract) =
 
   Format.fprintf out "\n# Old Variables\n";
   List.iter
-    (fun (name, _) -> Format.fprintf out "%s = Int('%s')\n" name name)
+    (fun (name, _) -> Format.fprintf out "%s = BitVec('%s', 64)\n" name name)
     contract.enviroment.old;
 
   Format.fprintf out "\n# Pre State\n";
-  Format.fprintf out "REG = Array('REG(s)', IntSort(), IntSort())\n";
-  Format.fprintf out "MEM = Array('MEM(s)', IntSort(), IntSort())\n";
+  Format.fprintf out "REG = Array('REG(s)', BitVecSort(64), BitVecSort(64))\n";
+  Format.fprintf out "MEM = Array('MEM(s)', BitVecSort(64), BitVecSort(64))\n";
   Format.fprintf out "\n# Pre Contract\n";
 
   Format.fprintf out "OldVar = ";
@@ -214,8 +236,10 @@ let print_contract (out : Format.formatter) (contract : arm_contract) =
   Format.fprintf out "\n";
 
   Format.fprintf out "\n# Post State\n";
-  Format.fprintf out "REG = Array('REG(s\\')', IntSort(), IntSort())\n";
-  Format.fprintf out "MEM = Array('MEM(s\\')', IntSort(), IntSort())\n";
+  Format.fprintf out
+    "REG = Array('REG(s\\')', BitVecSort(64), BitVecSort(64))\n";
+  Format.fprintf out
+    "MEM = Array('MEM(s\\')', BitVecSort(64), BitVecSort(64))\n";
 
   Format.fprintf out "\n# Post Contract\n";
 
