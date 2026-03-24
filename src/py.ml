@@ -46,11 +46,46 @@ let pp_logic_var (out : contract_printer) (var : arm_logic_var) =
 let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
   match host with
   | AVar v -> pp_logic_var out v
-  | ARegister (at, _size) -> Format.fprintf out.fmt "REG[%d]" at
-  | AMemory (at, _size) ->
-      Format.fprintf out.fmt "MEM[";
-      pp_arm_term out at;
-      Format.fprintf out.fmt "]"
+  | ARegister (at, size) ->
+      (* To simulate reading w0 or lower we extract the lower bits *)
+      pp_arm_cast_fn out AExtract size Word64 (fun local_out ->
+          Format.fprintf local_out.fmt "REG[%d]" at)
+  | AMemory (at, size) ->
+      (* To simulate a smaller read we extract the lower bits *)
+      pp_arm_cast_fn out AExtract size Word64 (fun local_out ->
+          Format.fprintf local_out.fmt "MEM[";
+          pp_arm_term local_out at;
+          Format.fprintf local_out.fmt "]")
+
+and pp_arm_unop (out : contract_printer) (op : arm_unop) (term : arm_term) :
+    unit =
+  let prefix = match op with BNot -> "~" | LNot -> "!" | Neg -> "-" in
+  Format.fprintf out.fmt "%s" prefix;
+  pp_arm_term out term
+
+and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
+    (to_size : arm_word_size) (from_size : arm_word_size)
+    (printer : contract_printer -> unit) : unit =
+  let to_bits = word_to_bits to_size in
+  let from_bits = word_to_bits from_size in
+
+  if from_bits == to_bits then printer out
+  else
+    let additional_bits = to_bits - from_bits in
+    (match cast with
+    | AExtract ->
+        Format.fprintf out.fmt "Extract(%d, 0, " (to_bits - 1)
+        (* Extract is inclusive *)
+    | ASignExtend -> Format.fprintf out.fmt "SignExt(%d, " additional_bits
+    | AZeroExtend -> Format.fprintf out.fmt "ZeroExt(%d, " additional_bits);
+    printer out;
+    Format.fprintf out.fmt ")"
+
+and pp_arm_cast (out : contract_printer) (cast : arm_cast)
+    (to_size : arm_word_size) (from_size : arm_word_size) (node : arm_term_node)
+    : unit =
+  pp_arm_cast_fn out cast to_size from_size (fun local_out ->
+      pp_arm_term_node local_out node)
 
 and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
     (rhs : arm_term) : unit =
@@ -82,12 +117,19 @@ and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
   pp_arm_term out rhs;
   Format.fprintf out.fmt ")"
 
-and pp_arm_term (out : contract_printer) (term : arm_term) =
-  match term.node with
+and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
+  match node with
   | AConst logical -> pp_arm_logical_constant out logical
   | ABinOp (op, lhs, rhs) -> pp_arm_binop out op lhs rhs
   | ALval host -> pp_arm_lvalue out host
   | SP -> Format.fprintf out.fmt "SP"
+  | AUnOp (op, term) -> pp_arm_unop out op term
+  | ACast (cast, size, term) ->
+      pp_arm_cast out cast size (size_of term.ty) term.node
+
+and pp_arm_term (out : contract_printer) (term : arm_term) =
+  pp_arm_term_node out term.node
+
 (*| _ ->
       (*Format.fprintf out.fmt "<<<<";
       Printer.pp_term out.fmt term;
@@ -218,7 +260,9 @@ let print_contract (out : Format.formatter) (contract : arm_contract) =
 
   Format.fprintf out "\n# Old Variables\n";
   List.iter
-    (fun (name, _) -> Format.fprintf out "%s = BitVec('%s', 64)\n" name name)
+    (fun (name, term) ->
+      Format.fprintf out "%s = BitVec('%s', %d)\n" name name
+        (term.ty |> size_of |> word_to_bits))
     contract.enviroment.old;
 
   Format.fprintf out "\n# Pre State\n";

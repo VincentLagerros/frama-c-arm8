@@ -93,6 +93,16 @@ and arm_binop =
       (** logical or. Like [LAnd] this operator is removed unless
           {!Kernel.LogicalOperators} is set. *)
 
+and arm_unop = unop
+
+and arm_cast =
+  (* Extend a unsigned value to a higher bitwidth *)
+  | AZeroExtend
+  (* Extend a signed value to a higher bitwidth *)
+  | ASignExtend
+  (* Extract the lower bits of a higher bitwidth word *)
+  | AExtract
+
 and arm_term_node =
   (* a constant. *)
   | AConst of arm_logic_constant
@@ -102,6 +112,10 @@ and arm_term_node =
   | SP
   (* lhs (+, -, *, /, %, <<, >>, <, >, <=, >=, ==, !=, &, ^, |) rhs *)
   | ABinOp of arm_binop * arm_term * arm_term
+  (* (-, !, ~) term *)
+  | AUnOp of arm_unop * arm_term
+  (* (sx, zx, ex) size, term *)
+  | ACast of arm_cast * arm_word_size * arm_term
 [@@deriving eq]
 
 type arm_overflow = arm_predicate option

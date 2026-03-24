@@ -6,13 +6,20 @@
     ensures \result >= y; 
     assigns \nothing;
 */ 
-int64_t max(int64_t x, int64_t y) {
+int max(int x, int y) {
     if (x > y) {
         return x; 
     } else {
         return y;
     }
 }
+
+// /*@ 
+//     ensures ~x == 4294967295; 
+// */ 
+// uint32_t bitneg(uint32_t x) {
+//     return 0;
+// }
 
 // /*@
 //     requires \valid(p);

@@ -67,6 +67,9 @@ let logic_type_to_size (logic_type : logic_type) =
 let word_to_bytes (size : arm_word_size) : int =
   match size with Word8 -> 1 | Word16 -> 2 | Word32 -> 4 | Word64 -> 8
 
+let word_to_bits (size : arm_word_size) : int =
+  size |> word_to_bytes |> fun x -> x * 8
+
 let logic_type_to_bytes (logic_type : logic_type) : int =
   logic_type_to_size logic_type |> word_to_bytes
 
@@ -79,6 +82,7 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
     (match term.term_node with
     | TConst logical -> logical_to_arm env logical
     | TBinOp (op, lhs, rhs) -> binop_to_arm env op lhs rhs
+    | TUnOp (op, t) -> AUnOp (op, term_to_arm env t)
     | TLval (host, offset) -> l_value_to_arm env host offset
     | Tat (t, label) -> at_to_arm env t label
     (* Align and sizeof is the same on ARMv8 for primative types *)
