@@ -126,6 +126,15 @@ and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
   | AUnOp (op, term) -> pp_arm_unop out op term
   | ACast (cast, size, term) ->
       pp_arm_cast out cast size (size_of term.ty) term.node
+  | Aif (c, t1, t2) ->
+      let fmt = out.fmt in
+      Format.fprintf fmt "If(";
+      pp_arm_term out c;
+      Format.fprintf fmt ", ";
+      pp_arm_term out t1;
+      Format.fprintf fmt ", ";
+      pp_arm_term out t2;
+      Format.fprintf fmt ")"
 
 and pp_arm_term (out : contract_printer) (term : arm_term) =
   pp_arm_term_node out term.node

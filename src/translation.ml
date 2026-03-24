@@ -220,17 +220,10 @@ and cast_to_arm (env : arm_enviroment) (_is_implicit_conversion : bool)
   let arm_term = term_to_arm env term in
 
   match (from_ty, to_ty) with
-  (* Change sign *)
+  (* No need to do any complicated math here when chaning the sign, as this is equivalent to transmute if the size is the same *)
   | AInt (_, Word32), AInt (_, Word32)
   | AInt (_, Word16), AInt (_, Word16)
-  | AInt (_, Word8), AInt (_, Word8) ->
-      (* TODO signextend *)
-      raise
-        (ArmException
-           (Format.sprintf "Unable to change sign from %s to %s"
-              (pp_spec pp_logic_type2 term.term_type)
-              (pp_spec pp_logic_type2 convert_to_type)))
-  (* No need to do any complicated math here, as it already is word64 and we can cast directly *)
+  | AInt (_, Word8), AInt (_, Word8)
   | AInt (_, Word64), AInt (_, Word64)
   (* Same size so transmute *)
   | APtr _, APtr _
@@ -238,12 +231,44 @@ and cast_to_arm (env : arm_enviroment) (_is_implicit_conversion : bool)
   | APtr _, AInt (_, Word64)
   | AInt (_, Word64), APtr _ ->
       arm_term.node
-  | _ ->
+  (* Sign extend signed numbers *)
+  | AInt (true, from_size), AInt (_, to_size) ->
+      if word_to_bytes from_size < word_to_bytes to_size then
+        ACast (ASignExtend, to_size, arm_term)
+      else ACast (AExtract, to_size, arm_term)
+  (* Zero extend unsigned numbers *)
+  | AInt (false, from_size), AInt (_, to_size) ->
+      if word_to_bytes from_size < word_to_bytes to_size then
+        ACast (AZeroExtend, to_size, arm_term)
+      else ACast (AExtract, to_size, arm_term)
+  (* if b then 1 else 0 *)
+  | ABool, AInt _ ->
+      Aif
+        ( arm_term,
+          1 |> int_to_arm_node |> node_to_term to_ty,
+          0 |> int_to_arm_node |> node_to_term to_ty )
+  (* ptr -> int just extracts the lower bits *)
+  | APtr _, AInt (_, to_size) -> ACast (AExtract, to_size, arm_term)
+  (* Sign extend signed numbers to a pointer, this is the C semantics *)
+  | AInt (true, _), APtr _ -> ACast (ASignExtend, Word64, arm_term)
+  (* Zero extend unsigned numbers to a pointer, this is the C semantics *)
+  | AInt (false, _), APtr _ -> ACast (AZeroExtend, Word64, arm_term)
+  (* This is done by frama-c, but we detail the semantics here as well *)
+  | AInt _, ABool | APtr _, ABool ->
+      (* ptr/int != nullptr/0 *)
+      ABinOp (ANe, arm_term, 0 |> int_to_arm_node |> node_to_term from_ty)
+  (* It makes no sense to cast a boolean to a pointer, frama-c errors on this *)
+  | ABool, APtr _ ->
+      raise
+        (ArmException
+           "A cast from a boolean to a ptr is not allowed, and does not make \
+            sense")
+(*| _ ->
       raise
         (ArmException
            (Format.sprintf "Unable to cast %s to %s"
               (pp_spec pp_logic_type2 term.term_type)
-              (pp_spec pp_logic_type2 convert_to_type)))
+              (pp_spec pp_logic_type2 convert_to_type)))*)
 
 and logic_var_to_arm (env : arm_enviroment) (lvar : logic_var) : arm_term_node =
   let location, out = Hashtbl.find env.variables lvar.lv_name in

@@ -15,7 +15,7 @@ type arm_predicate =
   | Atrue
   (* p1 ⇔ p2 *)
   | Aiff of arm_predicate * arm_predicate
-  (* if c then p1 else p2, TODO make this into a predicate and always use ints? *)
+  (* if c then p1 else p2 *)
   | Aif of arm_term * arm_predicate * arm_predicate
   (* p1 ∧ p2 *)
   | Aand of arm_predicate * arm_predicate
@@ -116,6 +116,9 @@ and arm_term_node =
   | AUnOp of arm_unop * arm_term
   (* (sx, zx, ex) size, term *)
   | ACast of arm_cast * arm_word_size * arm_term
+  (* Only use for (boolean)int *)
+  (* if c then p1 else p2 *)
+  | Aif of arm_term * arm_term * arm_term
 [@@deriving eq]
 
 type arm_overflow = arm_predicate option

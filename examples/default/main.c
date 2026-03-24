@@ -14,12 +14,12 @@ int max(int x, int y) {
     }
 }
 
-// /*@ 
-//     ensures ~x == 4294967295; 
-// */ 
-// uint32_t bitneg(uint32_t x) {
-//     return 0;
-// }
+/*@ 
+    ensures (boolean)x; 
+*/ 
+uint32_t bitneg(uint32_t x) {
+    return x;
+}
 
 // /*@
 //     requires \valid(p);
