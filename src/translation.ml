@@ -44,8 +44,7 @@ let rec typ_to_arm (typ : typ) : arm_type =
   match typ.tnode with
   | TVoid -> AVoid
   | TPtr typ -> APtr (typ_to_arm typ)
-  | TInt IBool | TInt IUChar -> AInt (false, Word8)
-  | TInt IChar -> AInt (true, Word8)
+  | TInt IBool | TInt IUChar | TInt IChar -> AInt (false, Word8)
   | TInt IUShort -> AInt (false, Word16)
   | TInt IShort -> AInt (true, Word16)
   | TInt IUInt -> AInt (false, Word32)
