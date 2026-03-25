@@ -43,6 +43,8 @@ and arm_type =
   | ABool
   (* A pointer value, corresponding to Ctype TPtr *)
   | APtr of arm_type
+  (* A void type, should only be used behind a void ptr *)
+  | AVoid
 
 and arm_term = { node : arm_term_node; ty : arm_type }
 and arm_logic_var = string

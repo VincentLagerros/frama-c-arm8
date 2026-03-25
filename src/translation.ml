@@ -8,6 +8,16 @@ open Specification
 let node_to_term (ty : arm_type) (node : arm_term_node) : arm_term =
   { node; ty }
 
+let type_to_signed (ty : arm_type) : bool =
+  match ty with
+  | AInt (signed, _) -> signed
+  (* any* == uint64_t *)
+  | APtr _ -> false
+  (* We use infix operators here, so the same as signed *)
+  | ABool -> true
+  (* Void has no sign, and can not be used in operations *)
+  | AVoid -> raise (ArmException "Void can not be used in binary operations")
+
 (* Inner pointer type *)
 let pointer_type (ptr : arm_type) : arm_type =
   match ptr with
@@ -18,6 +28,7 @@ let size_of (ty : arm_type) : arm_word_size =
   match ty with
   | APtr _ -> Word64
   | AInt (_, x) -> x
+  | AVoid -> raise (ArmException "This type is void, and does not have a size")
   | ABool ->
       raise (ArmException "This type is a bool, and does not have a size")
 
@@ -31,7 +42,7 @@ let var_to_arm (x : string) = ALval (AVar x)
 
 let rec typ_to_arm (typ : typ) : arm_type =
   match typ.tnode with
-  | TVoid -> raise (ArmException "Cant use void result a contract")
+  | TVoid -> AVoid
   | TPtr typ -> APtr (typ_to_arm typ)
   | TInt IBool | TInt IUChar -> AInt (false, Word8)
   | TInt IChar -> AInt (true, Word8)
@@ -220,6 +231,8 @@ and cast_to_arm (env : arm_enviroment) (_is_implicit_conversion : bool)
   let arm_term = term_to_arm env term in
 
   match (from_ty, to_ty) with
+  | AVoid, _ | _, AVoid ->
+      raise (ArmException "Unable to cast to of from a void type")
   (* No need to do any complicated math here when chaning the sign, as this is equivalent to transmute if the size is the same *)
   | AInt (_, Word32), AInt (_, Word32)
   | AInt (_, Word16), AInt (_, Word16)
@@ -386,9 +399,11 @@ and predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
   | Paligned (t1, t2) ->
       Arel
         ( Req,
-          node_to_term ABool
+          node_to_term
+            (logic_type_to_arm t1.term_type)
             (ABinOp (AMod, term_to_arm env t1, term_to_arm env t2)),
-          int_to_arm 0 )
+          0 |> int_to_arm_node |> node_to_term (logic_type_to_arm t1.term_type)
+        )
       (* Even if valid_read != valid, for our purposes it is equivalent as we have no restrictions on write/read *)
   | Pvalid (label, t) | Pvalid_read (label, t) -> valid_to_arm env label t
   | Prel (rel, t1, t2) ->

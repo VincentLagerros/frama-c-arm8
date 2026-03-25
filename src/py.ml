@@ -209,14 +209,7 @@ let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
       pp_arm_predicate out p2;
       Format.fprintf fmt ")"
   | Arel (rel, t1, t2) ->
-      let signed =
-        match t1.ty with
-        | AInt (signed, _) -> signed
-        (* any* == uint64_t *)
-        | APtr _ -> false
-        (* We use infix operators here, so the same as signed *)
-        | ABool -> true
-      in
+      let signed = type_to_signed t1.ty in
 
       let op, infix =
         if signed then
