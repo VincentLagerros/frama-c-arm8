@@ -95,6 +95,8 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
     | TUnOp (op, t) -> AUnOp (op, term_to_arm env t)
     | TLval (host, offset) -> l_value_to_arm env host offset
     | Tat (t, label) -> at_to_arm env t label
+    | Tif (t1, t2, t3) ->
+        Aif (term_to_arm env t1, term_to_arm env t2, term_to_arm env t3)
     (* Align and sizeof is the same on ARMv8 for primative types *)
     | TSizeOf typ | TAlignOf typ -> typ |> typ_to_bytes |> int_to_arm_node
     | TAddrOf (host, offset) -> address_of_l_value env host offset
