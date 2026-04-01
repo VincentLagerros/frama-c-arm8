@@ -40,17 +40,23 @@ let int_to_arm (x : int) : arm_term =
 
 let var_to_arm (x : string) = ALval (AVar x)
 
+let ikind_to_arm (kind : ikind) : arm_type =
+  match kind with
+  | IBool | IUChar | IChar -> AInt (false, Word8)
+  | ISChar -> AInt (true, Word8)
+  | IUShort -> AInt (false, Word16)
+  | IShort -> AInt (true, Word16)
+  | IUInt -> AInt (false, Word32)
+  | IInt -> AInt (true, Word32)
+  | IULong | IULongLong -> AInt (false, Word64)
+  | ILong | ILongLong -> AInt (true, Word64)
+
 let rec typ_to_arm (typ : typ) : arm_type =
   match typ.tnode with
   | TVoid -> AVoid
   | TPtr typ -> APtr (typ_to_arm typ)
-  | TInt IBool | TInt IUChar | TInt IChar -> AInt (false, Word8)
-  | TInt IUShort -> AInt (false, Word16)
-  | TInt IShort -> AInt (true, Word16)
-  | TInt IUInt -> AInt (false, Word32)
-  | TInt IInt -> AInt (true, Word32)
-  | TInt IULong | TInt IULongLong -> AInt (false, Word64)
-  | TInt ILong | TInt ILongLong -> AInt (true, Word64)
+  | TInt x -> ikind_to_arm x
+  | TEnum enum -> ikind_to_arm enum.ekind
   | TNamed info -> typ_to_arm info.ttype
   | TFloat _ -> raise (ArmException "Floats are not supported by L3")
   | TFun _ -> raise (ArmException "Functions are not supported")
@@ -336,6 +342,10 @@ and logical_to_arm (_ : arm_enviroment) (logical : logic_constant) :
   match logical with
   | Boolean b -> AConst (ABoolean b)
   | Integer (i, _) -> AConst (AInteger (Z.to_string i))
+  | LEnum item -> (
+      match item.eival.enode with
+      | Const (CInt64 (value, _, _)) -> AConst (AInteger (Z.to_string value))
+      | _ -> raise (ArmException "Invalid enum value"))
   | _ -> raise (ArmException "Unknown logical_to_arm")
 
 (* TODO support -absolute-valid-range for a range of supported values instead of HOL *)

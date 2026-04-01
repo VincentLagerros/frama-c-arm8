@@ -14,10 +14,17 @@ int max(int x, int y) {
     }
 }
 
+
+enum X {
+    A = 15,
+    B = 35,
+    C = 13,
+};
+
 /*@ 
-    ensures (boolean)x; 
+    ensures x == A; 
 */ 
-uint32_t bitneg(uint32_t x) {
+enum X bitneg(enum X x) {
     return x;
 }
 
