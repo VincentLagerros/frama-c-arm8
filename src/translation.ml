@@ -112,11 +112,29 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
     | Tnull -> int_to_arm_node 0
     | TCast (is_implicit_conversion, convert_to_type, term) ->
         cast_to_arm env is_implicit_conversion convert_to_type term
-    | Tapp _ ->
-        raise
-          (ArmException
-             "Applications like \\max or functions like strlen are currently \
-              unsupported")
+    | Tapp (info, _logical_label_list, term_list) -> (
+        (* Just eval *)
+        match info.l_body with
+        | LBterm t ->
+            let mapped_terms =
+              List.map (fun term -> term_to_arm env term) term_list
+            in
+            List.iter2
+              (fun profile term ->
+                Hashtbl.add env.variables profile.lv_name (env.at, term.node))
+              info.l_profile mapped_terms;
+            (* Add let bindings *)
+            let eval = (term_to_arm env t).node in
+            List.iter
+              (fun profile -> Hashtbl.remove env.variables profile.lv_name)
+              info.l_profile;
+            (* Remove let bindings *)
+            eval
+        | _ ->
+            raise
+              (ArmException
+                 (Format.sprintf "Unable to translate applications like %s"
+                    (pp_spec Printer.pp_logic_info info))))
     | _ ->
         raise
           (ArmException

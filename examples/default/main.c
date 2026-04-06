@@ -1,12 +1,13 @@
 #include <stdint.h>
-
+#include <limits.h>
+#include <string.h>
 /*@ 
     ensures \result == x || \result == y; 
     ensures \result >= x;
     ensures \result >= y; 
     assigns \nothing;
 */ 
-int max(int x, int y) {
+int max2(int x, int y) {
     if (x > y) {
         return x; 
     } else {
@@ -14,18 +15,16 @@ int max(int x, int y) {
     }
 }
 
-
-enum X {
-    A = 15,
-    B = 35,
-    C = 13,
-};
-
+/*@ logic integer my_max(integer a, integer b) = a >= b ? a : b; */
 /*@ 
-    ensures x == A; 
+    ensures \result == my_max(x, w); 
 */ 
-enum X bitneg(enum X x) {
-    return x;
+int bitneg(int x, int w) {
+    if (x > w) {
+        return x;
+    } else {
+        return w;
+    }
 }
 
 // /*@
