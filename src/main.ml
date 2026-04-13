@@ -78,8 +78,7 @@ let print_function_regular (out : Format.formatter) (fn : fundec) =
   List.iter (fun st -> Printer.pp_behavior out st) sp.spec_behavior;
   Format.fprintf out "@.";
 
-  let contract = Translation.fn_to_arm fn in
-  Py.print_contract out contract;
+  Hol.print_definition out fn;
   Format.fprintf out "@."
 (*Format.fprintf out "# Function %s\n" fn.svar.vname;
   Format.fprintf out "_result = Int(\"\\\\result\")\n";

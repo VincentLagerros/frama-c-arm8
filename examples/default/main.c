@@ -2,28 +2,14 @@
 #include <limits.h>
 #include <string.h>
 /*@ 
-    ensures \result == x || \result == y; 
-    ensures \result >= x;
-    ensures \result >= y; 
-    assigns \nothing;
+    requires \true;
+    ensures (\result == \old(x) || \result == \old(y)) && \old(x) <= \result && \old(y) <= \result;
 */ 
-int max2(int x, int y) {
+uint64_t max(uint64_t x, uint64_t y) {
     if (x > y) {
         return x; 
     } else {
         return y;
-    }
-}
-
-/*@ logic integer my_max(integer a, integer b) = a >= b ? a : b; */
-/*@ 
-    ensures \result == my_max(x, w); 
-*/ 
-int bitneg(int x, int w) {
-    if (x > w) {
-        return x;
-    } else {
-        return w;
     }
 }
 

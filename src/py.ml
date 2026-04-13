@@ -105,6 +105,7 @@ and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
     | ABXor -> "^"
     | AShiftlt -> "<<"
     | AShiftrt -> ">>"
+    (* Todo signed ? *)
     | ALt -> "<"
     | AGt -> ">"
     | AGe -> ">="
