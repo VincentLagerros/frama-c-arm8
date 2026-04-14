@@ -45,8 +45,11 @@ and arm_type =
   | APtr of arm_type
   (* A void type, should only be used behind a void ptr *)
   | AVoid
+[@@deriving eq]
 
 and arm_term = { node : arm_term_node; ty : arm_type }
+[@@deriving eq]
+
 and arm_logic_var = string
 and arm_word_size = Word8 | Word16 | Word32 | Word64 [@@deriving eq]
 
@@ -61,6 +64,8 @@ and arm_term_lhost =
 [@@deriving eq]
 
 and arm_term_lval = arm_term_lhost
+[@@deriving eq]
+
 and arm_logic_constant = ABoolean of bool | AInteger of string
 
 and arm_binop =
@@ -145,7 +150,6 @@ type arm_contract = {
   enviroment : arm_enviroment;
 }
 
-type contract_printer = { fmt : Format.formatter }
 (*type contract_options = { overflow : bool }*)
 
 (* If we can simplify it, then do it. This is just an ad hoc solution to simplify trivial expressions intoduced in folding *)

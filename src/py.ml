@@ -2,6 +2,7 @@ open Specification
 open Translation
 open Cil_types
 
+type contract_printer = { fmt : Format.formatter }
 (*
   Intermediate representation -> python z3 code for testing
 *)
@@ -69,7 +70,7 @@ and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
   let to_bits = word_to_bits to_size in
   let from_bits = word_to_bits from_size in
 
-  if from_bits == to_bits then printer out
+  if from_bits = to_bits then printer out
   else
     let additional_bits = to_bits - from_bits in
     (match cast with

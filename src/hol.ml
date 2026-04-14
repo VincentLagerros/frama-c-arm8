@@ -1,6 +1,8 @@
 open Specification
 open Translation
 open Cil_types
+
+type contract_printer = { fmt : Format.formatter; post : bool }
 (* https://kth-step.github.io/itppv-course/ *)
 (* https://github.com/kth-step/HolBA/tree/master/examples/arm8/max *)
 
@@ -20,11 +22,14 @@ let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
   | ARegister (at, size) ->
       (* To simulate reading w0 or lower we extract the lower bits *)
       pp_arm_cast_fn out AExtract size Word64 (fun local_out ->
-          Format.fprintf local_out.fmt "s.REG %dw" at)
+          Format.fprintf local_out.fmt "%s.REG %dw"
+            (if out.post then "ms" else "s")
+            at)
   | AMemory (at, size) ->
       (* To simulate a smaller read we extract the lower bits *)
       pp_arm_cast_fn out AExtract size Word64 (fun local_out ->
-          Format.fprintf local_out.fmt "arm8_load_64 s.MEM ";
+          Format.fprintf local_out.fmt "arm8_load_64 %s.MEM "
+            (if out.post then "ms" else "s");
           pp_arm_term local_out at)
 
 and pp_arm_unop (out : contract_printer) (op : arm_unop) (term : arm_term) :
@@ -39,7 +44,7 @@ and pp_arm_cast_fn (out : contract_printer) (_cast : arm_cast)
   let to_bits = word_to_bits to_size in
   let from_bits = word_to_bits from_size in
 
-  if from_bits == to_bits then printer out else raise (ArmException "TODO")
+  if from_bits = to_bits then printer out else raise (ArmException "TODO")
 (*
     let _additional_bits = to_bits - from_bits in
     (match cast with
@@ -207,7 +212,7 @@ let add_variables (variables : (arm_logic_var * arm_term) list)
     predicate variables
 
 let print_definition (out : Format.formatter) (fn : fundec) =
-  let (fmt : contract_printer) = { fmt = out } in
+  let (fmt : contract_printer) = { fmt = out; post = false } in
   let contract = Translation.fn_to_arm fn in
 
   Format.fprintf out "(* -------------- *)\n";
@@ -218,10 +223,9 @@ let print_definition (out : Format.formatter) (fn : fundec) =
   Format.fprintf out "Definition arm8_%s_pre_def:\n" fn.svar.vname;
   Format.fprintf out " arm8_%s_pre " fn.svar.vname;
 
-  List.iter
-    (fun (name, term) ->
-      Format.fprintf out "(%s:word%d) " name (term.ty |> size_of |> word_to_bits))
-    contract.enviroment.old;
+  contract.enviroment.old |> List.rev
+  |> List.iter (fun (name, term) ->
+      Format.fprintf out "(%s:word%d) " name (term.ty |> size_of |> word_to_bits));
   Format.fprintf out "(s:arm8_state) : bool =\n  ";
 
   pp_arm_predicate fmt
@@ -232,12 +236,12 @@ let print_definition (out : Format.formatter) (fn : fundec) =
   Format.fprintf out "Definition arm8_%s_post_def:\n" fn.svar.vname;
   Format.fprintf out " arm8_%s_post " fn.svar.vname;
 
-  List.iter
-    (fun (name, term) ->
-      Format.fprintf out "(%s:word%d) " name (term.ty |> size_of |> word_to_bits))
-    contract.enviroment.old;
-  Format.fprintf out "(s:arm8_state) : bool =\n  ";
+  contract.enviroment.old |> List.rev
+  |> List.iter (fun (name, term) ->
+      Format.fprintf out "(%s:word%d) " name (term.ty |> size_of |> word_to_bits));
+  Format.fprintf out "(ms:arm8_state) : bool =\n  ";
 
+  let (fmt : contract_printer) = { fmt = out; post = true } in
   pp_arm_predicate fmt contract.ensures;
 
   Format.fprintf out "\nEnd";
