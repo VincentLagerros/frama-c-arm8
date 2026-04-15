@@ -6,12 +6,28 @@
     ensures (\result == \old(x) || \result == \old(y)) && \old(x) <= \result && \old(y) <= \result;
 */ 
 uint64_t max(uint64_t x, uint64_t y) {
-    if (x > y) {
-        return x; 
-    } else {
-        return y;
-    }
+  if (x > y) {
+    return x;
+  } else {
+    return y;
+  }
 }
+
+
+/*@ 
+    requires \valid(x) && \valid(y);
+    ensures *x == \old(*y) && *y == \old(*x);
+*/ 
+void swap(uint64_t * x, uint64_t * y) {
+  uint64_t a, b;
+  a = * x;
+  b = * y;
+  if (a == b)
+    return;
+  * x = b;
+  * y = a;
+}
+
 
 // /*@
 //     requires \valid(p);
