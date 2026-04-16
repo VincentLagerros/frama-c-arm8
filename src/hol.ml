@@ -39,23 +39,24 @@ and pp_arm_unop (out : contract_printer) (op : arm_unop) (term : arm_term) :
   Format.fprintf out.fmt "%s" prefix;
   pp_arm_term out term
 
-and pp_arm_cast_fn (out : contract_printer) (_cast : arm_cast)
+and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
     (to_size : arm_word_size) (from_size : arm_word_size)
     (printer : contract_printer -> unit) : unit =
   let to_bits = word_to_bits to_size in
   let from_bits = word_to_bits from_size in
 
-  if from_bits = to_bits then printer out else raise (ArmException "TODO")
-(*
-    let _additional_bits = to_bits - from_bits in
+  if from_bits = to_bits then printer out
+  else
+    let additional_bits = to_bits - from_bits in
     (match cast with
     | AExtract ->
-        Format.fprintf out.fmt "Extract(%d, 0, " (to_bits - 1)
+        Format.fprintf out.fmt "(word_extract %d 0 " (to_bits - 1) (* Not found? *)
         (* Extract is inclusive *)
-    | ASignExtend -> Format.fprintf out.fmt "sign_extend("
-    | AZeroExtend -> Format.fprintf out.fmt "w2w (");
+    | ASignExtend ->
+        Format.fprintf out.fmt "(word_sign_extend %d " additional_bits
+    | AZeroExtend -> Format.fprintf out.fmt "(word_zero_extend %d " additional_bits); (* Not found? *)
     printer out;
-    Format.fprintf out.fmt ")"*)
+    Format.fprintf out.fmt ")"
 
 and pp_arm_cast (out : contract_printer) (cast : arm_cast)
     (to_size : arm_word_size) (from_size : arm_word_size) (node : arm_term_node)
@@ -65,45 +66,60 @@ and pp_arm_cast (out : contract_printer) (cast : arm_cast)
 
 and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
     (rhs : arm_term) : unit =
-  let infix =
-    match op with
-    | APlusA -> "+"
-    | AMinusA -> "-"
-    | AMult -> "*"
-    | ADiv -> "/"
-    | AMod -> "mod"
-    | AEq -> "="
-    | ANe -> "<>"
-    | ALOr -> "\\/"
-    | ALAnd -> "/\\"
-    | ABAnd -> "&&"
-    | ABOr -> "||"
-    | ABXor -> "??"
-    | AShiftlt -> "<<"
-    | AShiftrt -> ">>"
-    | ALt | AGt | AGe | ALe -> (
-        let signed = type_to_signed lhs.ty in
-        if signed then
-          match op with
-          | ALt -> "<"
-          | AGe -> ">="
-          | ALe -> "<="
-          | AGt -> ">"
-          | _ -> raise (ArmException "Unreachable")
-        else
-          match op with
-          | ALt -> "<+"
-          | AGe -> ">=+"
-          | ALe -> "<=+"
-          | AGt -> ">+"
-          | _ -> raise (ArmException "Unreachable"))
-  in
+  match op with
+  | AMod | ADiv ->
+      let signed, unsigned =
+        match op with
+        | ADiv -> ("word_sdiv", "word_div")
+        | AMod -> ("word_smod", "word_mod")
+        | _ -> raise (ArmException "Unreachable")
+      in
+      let fn = if type_to_signed lhs.ty then signed else unsigned in
 
-  Format.fprintf out.fmt "(";
-  pp_arm_term out lhs;
-  Format.fprintf out.fmt " %s " infix;
-  pp_arm_term out rhs;
-  Format.fprintf out.fmt ")"
+      Format.fprintf out.fmt "(%s " fn;
+      pp_arm_term out lhs;
+      Format.fprintf out.fmt " ";
+      pp_arm_term out rhs;
+      Format.fprintf out.fmt ")"
+  | _ ->
+      let infix =
+        match op with
+        | APlusA -> "+"
+        | AMinusA -> "-"
+        | AMult -> "*"
+        | AMod | ADiv -> raise (ArmException "Unreachable")
+        | AEq -> "="
+        | ANe -> "<>"
+        | ALOr -> "\\/"
+        | ALAnd -> "/\\"
+        | ABAnd -> "&&"
+        | ABOr -> "||"
+        | ABXor -> "??"
+        | AShiftlt -> "<<"
+        | AShiftrt -> ">>"
+        | ALt | AGt | AGe | ALe -> (
+            let signed = type_to_signed lhs.ty in
+            if signed then
+              match op with
+              | ALt -> "<"
+              | AGe -> ">="
+              | ALe -> "<="
+              | AGt -> ">"
+              | _ -> raise (ArmException "Unreachable")
+            else
+              match op with
+              | ALt -> "<+"
+              | AGe -> ">=+"
+              | ALe -> "<=+"
+              | AGt -> ">+"
+              | _ -> raise (ArmException "Unreachable"))
+      in
+
+      Format.fprintf out.fmt "(";
+      pp_arm_term out lhs;
+      Format.fprintf out.fmt " %s " infix;
+      pp_arm_term out rhs;
+      Format.fprintf out.fmt ")"
 
 and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
   match node with
