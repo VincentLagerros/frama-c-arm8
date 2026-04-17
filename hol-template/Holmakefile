@@ -1,0 +1,4 @@
+INCLUDES = $(HOLDIR)/examples/l3-machine-code/arm8/model
+
+all: $(DEFAULT_TARGETS)
+.PHONY: all
