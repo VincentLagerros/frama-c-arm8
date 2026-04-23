@@ -351,7 +351,19 @@ and env_old (env : arm_enviroment) (term : term) : arm_term_node =
   | Some (name, _) -> var_to_arm name
   | None ->
       let length = List.length env.old in
-      let name = Printf.sprintf "old_%d" length in
+
+      (* If this operation is just a single deref of an old variable, then label it as $_deref to make it more readable*)
+      let name =
+        match t.node with
+        | ALval (AMemory (deref_term, _deref_size)) -> (
+            match
+              List.find_opt (fun (_name, term) -> term = deref_term) env.old
+            with
+            | Some (name, _) -> Printf.sprintf "%s_deref" name
+            | None -> Printf.sprintf "old_%d" length)
+        | _ -> Printf.sprintf "old_%d" length
+      in
+
       env.old <- (name, t) :: env.old;
       var_to_arm name
 

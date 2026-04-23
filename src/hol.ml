@@ -2,6 +2,9 @@ open Specification
 open Translation
 open Cil_types
 
+let pre_state = "s"
+let post_state = "st"
+
 type contract_printer = { fmt : Format.formatter; post : bool }
 (* https://kth-step.github.io/itppv-course/ *)
 (* https://github.com/kth-step/HolBA/tree/master/examples/arm8/max *)
@@ -23,13 +26,13 @@ let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
       (* To simulate reading w0 or lower we extract the lower bits *)
       pp_arm_cast_fn out AExtract size Word64 (fun local_out ->
           Format.fprintf local_out.fmt "(%s.REG %dw)"
-            (if out.post then "ms" else "s")
+            (if out.post then post_state else pre_state)
             at)
   | AMemory (at, size) ->
       (* To simulate a smaller read we extract the lower bits *)
       pp_arm_cast_fn out AExtract size Word64 (fun local_out ->
           Format.fprintf local_out.fmt "(arm8_load_64 %s.MEM "
-            (if out.post then "ms" else "s");
+            (if out.post then post_state else pre_state);
           pp_arm_term local_out at;
           Format.fprintf local_out.fmt ")")
 
@@ -50,11 +53,14 @@ and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
     let additional_bits = to_bits - from_bits in
     (match cast with
     | AExtract ->
-        Format.fprintf out.fmt "(word_extract %d 0 " (to_bits - 1) (* Not found? *)
+        Format.fprintf out.fmt "(word_extract %d 0 " (to_bits - 1)
+        (* Not found? *)
         (* Extract is inclusive *)
     | ASignExtend ->
         Format.fprintf out.fmt "(word_sign_extend %d " additional_bits
-    | AZeroExtend -> Format.fprintf out.fmt "(word_zero_extend %d " additional_bits); (* Not found? *)
+    | AZeroExtend ->
+        Format.fprintf out.fmt "(word_zero_extend %d " additional_bits);
+    (* Not found? *)
     printer out;
     Format.fprintf out.fmt ")"
 
@@ -143,6 +149,11 @@ and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
 and pp_arm_term (out : contract_printer) (term : arm_term) =
   pp_arm_term_node out term.node
 
+let rec unfold_and (predicate : arm_predicate) : arm_predicate list =
+  match predicate with
+  | Aand (p1, p2) -> p2 :: unfold_and p1
+  | _ -> [ predicate ]
+
 let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
   let fmt = out.fmt in
   match predicate with
@@ -164,11 +175,13 @@ let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
   | Afalse -> Format.fprintf fmt "F"
   | Atrue -> Format.fprintf fmt "T"
   | Aand (p1, p2) ->
-      Format.fprintf fmt "(";
-      pp_arm_predicate out p1;
-      Format.fprintf fmt " /\\ ";
-      pp_arm_predicate out p2;
-      Format.fprintf fmt ")"
+      let list = unfold_and p1 in
+      (* We unfold the and list and remove the extra paraenesis to make it easier to read *)
+      list |> List.rev (* Rev as we are working with linked lists with filo ordering *)
+      |> List.iter (fun x ->
+          pp_arm_predicate out x;
+          Format.fprintf fmt " /\\\n  ");
+      pp_arm_predicate out p2
   | Aor (p1, p2) ->
       Format.fprintf fmt "(";
       pp_arm_predicate out p1;
@@ -243,12 +256,12 @@ let print_definition (out : Format.formatter) (fn : fundec) =
   contract.enviroment.old |> List.rev
   |> List.iter (fun (name, term) ->
       Format.fprintf out "(%s:word%d) " name (term.ty |> size_of |> word_to_bits));
-  Format.fprintf out "(s:arm8_state) : bool =\n  ";
+  Format.fprintf out "(%s:arm8_state) : bool =\n  (" pre_state;
 
   pp_arm_predicate fmt
     (add_variables contract.enviroment.old contract.requires |> simplify);
 
-  Format.fprintf out "\nEnd\n\n";
+  Format.fprintf out ")\nEnd\n\n";
 
   Format.fprintf out "Definition arm8_%s_post_def:\n" fn.svar.vname;
   Format.fprintf out " arm8_%s_post " fn.svar.vname;
@@ -256,11 +269,11 @@ let print_definition (out : Format.formatter) (fn : fundec) =
   contract.enviroment.old |> List.rev
   |> List.iter (fun (name, term) ->
       Format.fprintf out "(%s:word%d) " name (term.ty |> size_of |> word_to_bits));
-  Format.fprintf out "(ms:arm8_state) : bool =\n  ";
+  Format.fprintf out "(%s:arm8_state) : bool =\n  (" post_state;
 
   let (fmt : contract_printer) = { fmt = out; post = true } in
   pp_arm_predicate fmt contract.ensures;
 
-  Format.fprintf out "\nEnd";
+  Format.fprintf out ")\nEnd";
 
   Format.fprintf out "\n"
