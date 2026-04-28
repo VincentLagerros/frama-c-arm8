@@ -33,16 +33,23 @@ End
 (* ARMv8 contract *)
 (* -------------- *)
 
-(* ==== Function max ====*)
-Definition arm8_max_pre_def:
- arm8_max_pre (pre_x0:word32) (pre_x1:word32) (s:arm8_state) : bool =
-  ((pre_x1 = (word_extract 31 0 (s.REG 1w))) /\
-  (pre_x0 = (word_extract 31 0 (s.REG 0w))))
+(* ==== Function swap ====*)
+Definition arm8_swap_pre_def:
+ arm8_swap_pre (pre_x0:word64) (pre_x1:word64) (pre_x0_deref:word64) (pre_x1_deref:word64) (s:arm8_state) : bool =
+  ((131072w <=+ (s.REG 0w)) /\
+  ((s.REG 0w) <+ 4294967296w) /\
+  ((word_mod (s.REG 0w) 8w) = 0w) /\
+  (131072w <=+ (s.REG 1w)) /\
+  ((s.REG 1w) <+ 4294967296w) /\
+  ((word_mod (s.REG 1w) 8w) = 0w) /\
+  (pre_x1_deref = (arm8_load_64 s.MEM (s.REG 1w))) /\
+  (pre_x0_deref = (arm8_load_64 s.MEM (s.REG 0w))) /\
+  (pre_x1 = (s.REG 1w)) /\
+  (pre_x0 = (s.REG 0w)))
 End
 
-Definition arm8_max_post_def:
- arm8_max_post (pre_x0:word32) (pre_x1:word32) (st:arm8_state) : bool =
-  ((((st.REG 0w) = (sw2sw pre_x0: word64)) \/ ((st.REG 0w) = (sw2sw pre_x1: word64))) /\
-  ((sw2sw pre_x0: word64) <= (st.REG 0w)) /\
-  ((sw2sw pre_x1: word64) <= (st.REG 0w)))
+Definition arm8_swap_post_def:
+ arm8_swap_post (pre_x0:word64) (pre_x1:word64) (pre_x0_deref:word64) (pre_x1_deref:word64) (st:arm8_state) : bool =
+  (((arm8_load_64 st.MEM pre_x0) = pre_x1_deref) /\
+  ((arm8_load_64 st.MEM pre_x1) = pre_x0_deref))
 End

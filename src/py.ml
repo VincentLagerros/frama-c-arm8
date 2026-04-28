@@ -312,3 +312,33 @@ let print_arm_overflow (out : Format.formatter) (fn : fundec) =
         Aand (contract.requires, contract.ensures) )
   in
   pp_arm_predicate formatter check
+
+let print_definition (out : Format.formatter) (fn : fundec) =
+  let contract = Translation.fn_to_arm fn in
+  print_contract out contract
+
+(* Z3 fails to prove basic properties of Bit Vectors,
+
+1. When conveting BV2Int
+```py
+a_bv = BitVec('a', 64)
+b_bv = BitVec('b', 64)
+
+a_int = BV2Int(a_bv, False)
+b_int = BV2Int(b_bv, False)
+
+p = Not(ULE(a_bv, b_bv) == (a_int <= b_int))
+```
+
+2. When converting Int2BV
+```py
+a_int = Int('a')
+b_int = Int('b')
+type_req = And(a_int >= 0, a_int <= 18446744073709551615, b_int >= 0, b_int <= 18446744073709551615)
+a_bv = Int2BV(a_int, 64)
+b_bv = Int2BV(b_int, 64)
+p = And(type_req,Not(ULE(a_bv, b_bv) == (a_int <= b_int)))
+```
+
+Like ACSL, if we want any sort of check we must do the aritmatic in Int, or BitVec, but not both.
+*)

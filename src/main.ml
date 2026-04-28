@@ -1,5 +1,7 @@
 open Cil_types (* src/kernel_services/ast_data *)
 
+exception IllegalArgumentException of string
+
 let help_msg = "Simple ARMv8 translation"
 
 module Self = Plugin.Register (struct
@@ -20,9 +22,11 @@ module Output_file = Self.String (struct
   let help = "file where the message is output (default: output to the console)"
 end)
 
-module OverflowEnabled = Self.False (struct
-  let option_name = "-arm8-overflow"
-  let help = "Generate the armv8 overflow check"
+module Output_type = Self.String (struct
+  let option_name = "-arm8-type"
+  let default = "hol"
+  let arg_name = "output-type"
+  let help = "hol|py"
 end)
 
 let print_behavior (out : Format.formatter) (spec : behavior) =
@@ -69,7 +73,7 @@ let print_function_overflow (out : Format.formatter) (fn : fundec) =
   Format.fprintf out ")\n";
   Format.fprintf out "@."*)
 
-let print_function_regular (out : Format.formatter) (fn : fundec) =
+let print_function_dbg (out : Format.formatter) (fn : fundec) =
   let kf = Globals.Functions.get fn.svar in
   let _behaviors = Annotations.behaviors kf in
 
@@ -97,24 +101,44 @@ let print_function_regular (out : Format.formatter) (fn : fundec) =
   Spec.pp_arm_predicate formatter contract.ensures;
   Format.fprintf out "@."*)
 
-let print_global_overflow (out : Format.formatter) = function
-  | GFun (def, _location) -> print_function_overflow out def
-  | _x -> Format.fprintf out ""
+let print_function_py (out : Format.formatter) (fn : fundec) =
+  let kf = Globals.Functions.get fn.svar in
+  let _behaviors = Annotations.behaviors kf in
 
-let print_global_regular (out : Format.formatter) = function
-  | GFun (def, _location) -> print_function_regular out def
+  (*Format.fprintf out "\n# ==== Function %s ====\n" fn.svar.vname;
+  let sp = Annotations.funspec kf in
+  List.iter (fun st -> Printer.pp_behavior out st) sp.spec_behavior;*)
+  Py.print_definition out fn;
+  Format.fprintf out "@."
+
+let print_function_hol (out : Format.formatter) (fn : fundec) =
+  let kf = Globals.Functions.get fn.svar in
+  let _behaviors = Annotations.behaviors kf in
+
+  (*let sp = Annotations.funspec kf in
+  List.iter (fun st -> Printer.pp_behavior out st) sp.spec_behavior;*)
+  Hol.print_definition out fn;
+  Format.fprintf out "@."
+
+let print_ty (out : Format.formatter) (fn : Format.formatter -> fundec -> unit)
+    = function
+  | GFun (def, _location) -> fn out def
   (*| GFunDecl(_decr, _varinfo, _location) -> Format.fprintf out "<gfundecl>"*)
   | _x -> Format.fprintf out ""
 
 let main (out : out_channel) =
   let fmt = Format.formatter_of_out_channel out in
   let file = Ast.get () in
+
   let f =
-    if OverflowEnabled.get () then print_global_overflow fmt
-    else print_global_regular fmt
+    match Output_type.get () |> String.lowercase_ascii with
+    | "hol" | "hol4" | "h" -> print_function_hol
+    | "py" | "python" -> print_function_py
+    | "dbg" | "debug" -> print_function_dbg
+    | _ -> raise (IllegalArgumentException "No valid output type")
   in
-  List.iter f file.globals;
-  Format.fprintf fmt "# finished@."
+  List.iter (print_ty fmt f) file.globals;
+  Format.fprintf fmt "@."
 
 let run () =
   try
