@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <limits.h>
 #include <string.h>
+uint64_t value;
+
 /*@ 
     requires \true;
     ensures (\result == \old(x) || \result == \old(y)) && \old(x) <= \result && \old(y) <= \result;

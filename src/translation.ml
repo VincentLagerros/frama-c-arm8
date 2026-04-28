@@ -329,7 +329,9 @@ and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
     | TVar logical_var -> logic_var_to_arm env logical_var
     | TMem term ->
         ALval
-          (AMemory (term_to_arm env term, logic_type_to_size term.term_type))
+          (AMemory
+             ( term_to_arm env term,
+               term.term_type |> logic_type_to_arm |> pointer_type |> size_of ))
     (* We can be sure this is only in a post-context as otherwise you will get "\result meaningless" error from wp *)
     | TResult typ -> ALval (ARegister (0, typ_to_size typ))
 

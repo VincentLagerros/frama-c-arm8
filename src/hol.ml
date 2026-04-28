@@ -50,19 +50,20 @@ and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
 
   if from_bits = to_bits then printer out
   else
-    let additional_bits = to_bits - from_bits in
-    (match cast with
+    (* https://github.com/HOL-Theorem-Prover/HOL/blob/49d055302c1a002be77ab39b156e838c525b2401/src/n-bit/selftest.sml#L646 *)
+    match cast with
     | AExtract ->
-        Format.fprintf out.fmt "(word_extract %d 0 " (to_bits - 1)
-        (* Not found? *)
-        (* Extract is inclusive *)
+        Format.fprintf out.fmt "(word_extract %d 0 " (to_bits - 1);
+        printer out;
+        Format.fprintf out.fmt ")" (* Extract is inclusive *)
     | ASignExtend ->
-        Format.fprintf out.fmt "(word_sign_extend %d " additional_bits
+        Format.fprintf out.fmt "(sw2sw ";
+        printer out;
+        Format.fprintf out.fmt ": word%d)" to_bits
     | AZeroExtend ->
-        Format.fprintf out.fmt "(word_zero_extend %d " additional_bits);
-    (* Not found? *)
-    printer out;
-    Format.fprintf out.fmt ")"
+        Format.fprintf out.fmt "(w2w ";
+        printer out;
+        Format.fprintf out.fmt ": word%d)" to_bits
 
 and pp_arm_cast (out : contract_printer) (cast : arm_cast)
     (to_size : arm_word_size) (from_size : arm_word_size) (node : arm_term_node)
@@ -177,7 +178,9 @@ let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
   | Aand (p1, p2) ->
       let list = unfold_and p1 in
       (* We unfold the and list and remove the extra paraenesis to make it easier to read *)
-      list |> List.rev (* Rev as we are working with linked lists with filo ordering *)
+      list
+      |> List.rev
+         (* Rev as we are working with linked lists with filo ordering *)
       |> List.iter (fun x ->
           pp_arm_predicate out x;
           Format.fprintf fmt " /\\\n  ");

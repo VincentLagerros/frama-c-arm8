@@ -1,5 +1,6 @@
 #include <stdint.h>
 
+uint64_t value = 0;
 /*@ 
     ensures \result == x || \result == y; 
     ensures \result >= x;
