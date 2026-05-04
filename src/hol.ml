@@ -53,17 +53,18 @@ and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
     (* https://github.com/HOL-Theorem-Prover/HOL/blob/49d055302c1a002be77ab39b156e838c525b2401/src/n-bit/selftest.sml#L646 *)
     match cast with
     | AExtract ->
+        (* Extract is inclusive *)
         Format.fprintf out.fmt "(word_extract %d 0 " (to_bits - 1);
         printer out;
-        Format.fprintf out.fmt ")" (* Extract is inclusive *)
+        Format.fprintf out.fmt " : word%d)" to_bits
     | ASignExtend ->
         Format.fprintf out.fmt "(sw2sw ";
         printer out;
-        Format.fprintf out.fmt ": word%d)" to_bits
+        Format.fprintf out.fmt " : word%d)" to_bits
     | AZeroExtend ->
         Format.fprintf out.fmt "(w2w ";
         printer out;
-        Format.fprintf out.fmt ": word%d)" to_bits
+        Format.fprintf out.fmt " : word%d)" to_bits
 
 and pp_arm_cast (out : contract_printer) (cast : arm_cast)
     (to_size : arm_word_size) (from_size : arm_word_size) (node : arm_term_node)

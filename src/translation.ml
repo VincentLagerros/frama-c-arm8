@@ -98,7 +98,25 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
     (match term.term_node with
     | TConst logical -> logical_to_arm env logical
     | TBinOp (op, lhs, rhs) -> binop_to_arm env op lhs rhs
-    | TUnOp (op, t) -> AUnOp (op, term_to_arm env t)
+    | TUnOp (op, inner_term) ->
+        (*print_string
+          (Format.sprintf "unop (%s -> %s) %s\n"
+             (pp_spec pp_logic_type2 t.term_type)
+             (pp_spec pp_logic_type2 term.term_type)
+             (pp_spec Printer.pp_term term));*)
+
+        (* 
+          Unexpected implcit cast? Is this a bug in Frama-C or are unops supposed to convert the type?
+          This is treated as ~(Z)T instead of (Z)~T. It is very weird.
+        *)
+        AUnOp
+          ( op,
+            node_to_term
+              (logic_type_to_arm term.term_type)
+              (cast_to_arm_term env
+                 (logic_type_to_arm inner_term.term_type)
+                 (logic_type_to_arm term.term_type)
+                 (term_to_arm env inner_term)) )
     | TLval (host, offset) -> l_value_to_arm env host offset
     | Tat (t, label) -> at_to_arm env t label
     | Tif (t1, t2, t3) ->
@@ -254,7 +272,16 @@ and cast_to_arm (env : arm_enviroment) (_is_implicit_conversion : bool)
   let to_ty = logic_type_to_arm convert_to_type in
   let from_ty = logic_type_to_arm term.term_type in
   let arm_term = term_to_arm env term in
+  (*print_string
+    (Format.sprintf "cast (%s -> %s) %s implcit=%b\n"
+       (pp_spec pp_logic_type2 term.term_type)
+       (pp_spec pp_logic_type2 convert_to_type)
+       (pp_spec Printer.pp_term term)
+       _is_implicit_conversion);*)
+  cast_to_arm_term env from_ty to_ty arm_term
 
+and cast_to_arm_term (_env : arm_enviroment) (from_ty : arm_type)
+    (to_ty : arm_type) (arm_term : arm_term) : arm_term_node =
   match (from_ty, to_ty) with
   | AVoid, _ | _, AVoid ->
       raise (ArmException "Unable to cast to of from a void type")
