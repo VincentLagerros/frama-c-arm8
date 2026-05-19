@@ -376,7 +376,11 @@ and env_old (env : arm_enviroment) (term : term) : arm_term_node =
 
     If we need perf then just make this into a hashmap.
   *)
-  match List.find_opt (fun (_name, term) -> term.node = t.node) env.old with
+  match
+    List.find_opt
+      (fun (name, term) -> term.node = t.node || t.node = ALval (AVar name))
+      env.old
+  with
   | Some (name, _) -> var_to_arm name
   | None ->
       let length = List.length env.old in
@@ -385,11 +389,9 @@ and env_old (env : arm_enviroment) (term : term) : arm_term_node =
       let name =
         match t.node with
         | ALval (AMemory (deref_term, _deref_size)) -> (
-            match
-              List.find_opt (fun (_name, term) -> term = deref_term) env.old
-            with
-            | Some (name, _) -> Printf.sprintf "%s_deref" name
-            | None -> Printf.sprintf "old_%d" length)
+            match deref_term.node with
+            | ALval (AVar inner_name) -> Printf.sprintf "%s_deref" inner_name
+            | _ -> Printf.sprintf "old_%d" length)
         | _ -> Printf.sprintf "old_%d" length
       in
 
@@ -567,33 +569,34 @@ let argument_to_arm (index : int) (size : arm_word_size) : arm_term_node =
                   int_to_arm ((index - 8) * 8) )),
            size ))
 
-let varinfo_to_old (index : int) (varinfo : varinfo) : arm_logic_var * arm_term
-    =
+(* C-Name, Arm-Name, Arm-Term *)
+let varinfo_to_old (index : int) (varinfo : varinfo) :
+    string * arm_logic_var * arm_term =
   let size = typ_to_size varinfo.vtype in
-  ( Format.sprintf "pre_x%d" index,
+  ( varinfo.vorig_name,
+    Format.sprintf "pre_x%d" index,
     node_to_term (typ_to_arm varinfo.vtype) (argument_to_arm index size) )
 
-let fn_vars_to_old (args : varinfo list) : (arm_logic_var * arm_term) list =
+let fn_vars_to_old (args : varinfo list) :
+    (arm_logic_var * string * arm_term) list =
   List.rev (List.mapi varinfo_to_old args)
 
-let varinfo_to_arm (index : int) (varinfo : varinfo) :
-    arm_logic_var * arm_term_node =
-  let size = typ_to_size varinfo.vtype in
-  (varinfo.vorig_name, argument_to_arm index size)
-
-let fn_vars_to_arm (args : varinfo list) : (arm_logic_var * arm_term_node) list
-    =
-  List.mapi varinfo_to_arm args
-
 let sformals_to_env (fn : fundec) : arm_enviroment =
-  let arguments = fn_vars_to_arm fn.sformals in
+  let arguments = fn_vars_to_old fn.sformals in
   let table = Hashtbl.create (List.length arguments) in
+
   (* All variables are substituted like "Contract-Based Verification in TriCera" *)
-  List.iter (fun (key, value) -> Hashtbl.add table key (Pre, value)) arguments;
+  (* This maps c_name -> arm_name to make it easier to read than inserting the value directly, this is because we do arm_name = value with old *)
+  List.iter
+    (fun (c_name, arm_name, _value) ->
+      Hashtbl.add table c_name (Pre, ALval (AVar arm_name)))
+    arguments;
   {
     variables = table;
     predicates = Hashtbl.create 0;
-    old = fn_vars_to_old fn.sformals;
+    (* Maps all arm_name -> value to be inserted as top level bindings *)
+    old =
+      List.map (fun (_c_name, arm_name, value) -> (arm_name, value)) arguments;
     at = Pre;
   }
 
