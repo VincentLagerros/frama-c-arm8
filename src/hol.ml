@@ -134,7 +134,7 @@ and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
   | AConst logical -> pp_arm_logical_constant out logical
   | ABinOp (op, lhs, rhs) -> pp_arm_binop out op lhs rhs
   | ALval host -> pp_arm_lvalue out host
-  | SP -> Format.fprintf out.fmt "s.SP"
+  | SP -> Format.fprintf out.fmt "s.SP_EL0"
   | AUnOp (op, term) -> pp_arm_unop out op term
   | ACast (cast, size, term) ->
       pp_arm_cast out cast size (size_of term.ty) term.node
@@ -231,6 +231,9 @@ let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
       Format.fprintf fmt " %s " op;
       pp_arm_term out t2;
       Format.fprintf fmt ")"
+  | Anot p ->
+      Format.fprintf fmt "~";
+      pp_arm_predicate out p
   | _ -> raise (ArmException "Unknown pp_arm_predicate")
 
 let add_variable (term : arm_term) (name : arm_logic_var)
