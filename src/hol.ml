@@ -10,11 +10,12 @@ type contract_printer = { fmt : Format.formatter; post : bool }
 (* https://github.com/kth-step/HolBA/tree/master/examples/arm8/max *)
 
 let pp_arm_logical_constant (out : contract_printer)
-    (constant : arm_logic_constant) =
+    (constant : arm_logic_constant) (ty : arm_type) =
   match constant with
   | ABoolean true -> Format.fprintf out.fmt "T"
   | ABoolean false -> Format.fprintf out.fmt "F"
-  | AInteger z -> Format.fprintf out.fmt "%sw" z
+  | AInteger z ->
+      Format.fprintf out.fmt "(%sw : word%d)" z (ty |> size_of |> word_to_bits)
 
 let pp_logic_var (out : contract_printer) (var : arm_logic_var) =
   Format.fprintf out.fmt "%s" var
@@ -67,19 +68,21 @@ and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
         Format.fprintf out.fmt " : word%d)" to_bits
 
 and pp_arm_cast (out : contract_printer) (cast : arm_cast)
-    (to_size : arm_word_size) (from_size : arm_word_size) (node : arm_term_node)
-    : unit =
+    (to_size : arm_word_size) (from_size : arm_word_size) (term : arm_term) :
+    unit =
   pp_arm_cast_fn out cast to_size from_size (fun local_out ->
-      pp_arm_term_node local_out node)
+      pp_arm_term local_out term)
 
 and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
     (rhs : arm_term) : unit =
   match op with
-  | AMod | ADiv ->
+  | AMod | ADiv | AShiftlt | AShiftrt ->
       let signed, unsigned =
         match op with
         | ADiv -> ("word_sdiv", "word_div")
         | AMod -> ("word_smod", "word_mod")
+        | AShiftrt -> ("word_lsr_bv", "word_lsr_bv")
+        | AShiftlt -> ("word_lsl_bv", "word_lsl_bv")
         | _ -> raise (ArmException "Unreachable")
       in
       let fn = if type_to_signed lhs.ty then signed else unsigned in
@@ -95,7 +98,8 @@ and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
         | APlusA -> "+"
         | AMinusA -> "-"
         | AMult -> "*"
-        | AMod | ADiv -> raise (ArmException "Unreachable")
+        | AMod | ADiv | AShiftrt | AShiftlt ->
+            raise (ArmException "Unreachable")
         | AEq -> "="
         | ANe -> "<>"
         | ALOr -> "\\/"
@@ -103,8 +107,6 @@ and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
         | ABAnd -> "&&"
         | ABOr -> "||"
         | ABXor -> "??"
-        | AShiftlt -> "<<"
-        | AShiftrt -> ">>"
         | ALt | AGt | AGe | ALe -> (
             let signed = type_to_signed lhs.ty in
             if signed then
@@ -129,15 +131,14 @@ and pp_arm_binop (out : contract_printer) (op : arm_binop) (lhs : arm_term)
       pp_arm_term out rhs;
       Format.fprintf out.fmt ")"
 
-and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
-  match node with
-  | AConst logical -> pp_arm_logical_constant out logical
+and pp_arm_term (out : contract_printer) (term : arm_term) =
+  match term.node with
+  | AConst logical -> pp_arm_logical_constant out logical term.ty
   | ABinOp (op, lhs, rhs) -> pp_arm_binop out op lhs rhs
   | ALval host -> pp_arm_lvalue out host
   | SP -> Format.fprintf out.fmt "s.SP_EL0"
   | AUnOp (op, term) -> pp_arm_unop out op term
-  | ACast (cast, size, term) ->
-      pp_arm_cast out cast size (size_of term.ty) term.node
+  | ACast (cast, size, term) -> pp_arm_cast out cast size (size_of term.ty) term
   | Aif (c, t1, t2) ->
       let fmt = out.fmt in
       Format.fprintf fmt "if (";
@@ -147,9 +148,6 @@ and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
       Format.fprintf fmt ") else (";
       pp_arm_term out t2;
       Format.fprintf fmt ")"
-
-and pp_arm_term (out : contract_printer) (term : arm_term) =
-  pp_arm_term_node out term.node
 
 let rec unfold_and (predicate : arm_predicate) : arm_predicate list =
   match predicate with

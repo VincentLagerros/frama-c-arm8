@@ -32,25 +32,23 @@ End
 (* ARMv8 contract *)
 (* -------------- *)
 
-(* ==== Function swap ====*)
-Definition arm8_swap_pre_def:
- arm8_swap_pre (pre_x0:word64) (pre_x1:word64) (pre_x0_deref:word64) (pre_x1_deref:word64) (s:arm8_state) : bool =
-  ((131072w <=+ pre_x0) /\
-  (pre_x0 <+ 4294967296w) /\
-  ((word_mod pre_x0 8w) = 0w) /\
-  (131072w <=+ pre_x1) /\
-  (pre_x1 <+ 4294967296w) /\
-  ((word_mod pre_x1 8w) = 0w) /\
-  (pre_x1_deref = (arm8_load_64 s.MEM pre_x1)) /\
-  (pre_x0_deref = (arm8_load_64 s.MEM pre_x0)) /\
-  (pre_x1 = (s.REG 1w)) /\
-  (pre_x0 = (s.REG 0w)))
+(* ==== Function generate_parity_bit ====*)
+Definition arm8_generate_parity_bit_pre_def:
+ arm8_generate_parity_bit_pre (pre_x0:word32) (pre_x1:word32) (pre_x2:word32) (pre_x3:word32) (s:arm8_state) : bool =
+  ((((sw2sw pre_x0 : word64) = (0w : word64)) \/ ((sw2sw pre_x0 : word64) = (1w : word64))) /\
+  (((sw2sw pre_x1 : word64) = (0w : word64)) \/ ((sw2sw pre_x1 : word64) = (1w : word64))) /\
+  (((sw2sw pre_x2 : word64) = (0w : word64)) \/ ((sw2sw pre_x2 : word64) = (1w : word64))) /\
+  (((sw2sw pre_x3 : word64) = (0w : word64)) \/ ((sw2sw pre_x3 : word64) = (1w : word64))) /\
+  (pre_x3 = (word_extract 31 0 (s.REG 3w) : word32)) /\
+  (pre_x2 = (word_extract 31 0 (s.REG 2w) : word32)) /\
+  (pre_x1 = (word_extract 31 0 (s.REG 1w) : word32)) /\
+  (pre_x0 = (word_extract 31 0 (s.REG 0w) : word32)))
 End
 
-Definition arm8_swap_post_def:
- arm8_swap_post (pre_x0:word64) (pre_x1:word64) (pre_x0_deref:word64) (pre_x1_deref:word64) (st:arm8_state) : bool =
-  (((arm8_load_64 st.MEM pre_x0) = pre_x1_deref) /\
-  ((arm8_load_64 st.MEM pre_x1) = pre_x0_deref))
+Definition arm8_generate_parity_bit_post_def:
+ arm8_generate_parity_bit_post (pre_x0:word32) (pre_x1:word32) (pre_x2:word32) (pre_x3:word32) (st:arm8_state) : bool =
+  ((((word_smod ((((sw2sw pre_x0 : word64) + (sw2sw pre_x1 : word64)) + (sw2sw pre_x2 : word64)) + (sw2sw pre_x3 : word64)) (2w : word64)) = (0w : word64)) ==> ((sw2sw (word_extract 31 0 (st.REG 0w) : word32) : word64) = (0w : word64))) /\
+  (~((word_smod ((((sw2sw pre_x0 : word64) + (sw2sw pre_x1 : word64)) + (sw2sw pre_x2 : word64)) + (sw2sw pre_x3 : word64)) (2w : word64)) = (0w : word64)) ==> ((sw2sw (word_extract 31 0 (st.REG 0w) : word32) : word64) = (1w : word64))))
 End
 
 

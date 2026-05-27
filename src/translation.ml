@@ -60,7 +60,10 @@ let rec typ_to_arm (typ : typ) : arm_type =
   | TNamed info -> typ_to_arm info.ttype
   | TFloat _ -> raise (ArmException "Floats are not supported by L3")
   | TFun _ -> raise (ArmException "Functions are not supported")
-  | _ -> raise (ArmException "Unknown typ_to_arm")
+  | _ ->
+      raise
+        (ArmException
+           (Format.sprintf "Unknown typ_to_arm %s" (pp_spec Printer.pp_typ typ)))
 
 let logic_type_to_arm (logic_type : logic_type) : arm_type =
   match logic_type with
@@ -156,8 +159,9 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
     | _ ->
         raise
           (ArmException
-             (Format.sprintf "Unknown term_to_arm %s"
-                (pp_spec Printer.pp_term term))))
+             (Format.sprintf "Unknown term_to_arm %s : %s"
+                (pp_spec Printer.pp_term term)
+                (pp_spec Printer.pp_logic_type term.term_type))))
 
 and address_of_l_value (_env : arm_enviroment) (lhost : term_lhost)
     (offset : term_offset) : arm_term_node =
@@ -417,13 +421,47 @@ and valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
   | StmtLabel _ -> raise (ArmException "\\valid is not supported with C labels")
   | FormalLabel _ ->
       raise (ArmException "\\valid is not supported with global annotations")
-  | BuiltinLabel Here ->
-      let arm_term = term_to_arm env term in
+  | BuiltinLabel Here -> (
+      (* Hardcode a match for the very common \valid(p+(a..b)) *)
+      match term.term_node with
+      | TBinOp
+          ( PlusPI,
+            ptr,
+            {
+              term_node = Trange (Some range_start, Some range_end);
+              term_loc = _;
+              term_type = _;
+              term_name = _;
+            } ) ->
+          let base_ptr = term_to_arm env ptr in
+          let arm_range_start =
+            binop_to_arm env PlusPI ptr range_start |> node_to_term base_ptr.ty
+          in
+          let arm_range_end =
+            binop_to_arm env PlusPI ptr range_end |> node_to_term base_ptr.ty
+          in
 
-      (* The nullcheck is for "\valid{L}((char ptr)\null) and \valid_read{L}((char ptr)\null) are always false, forany logic label L"*)
-      (* The mod check is for aligment for armv8, technically frama-c have the \aligned keyword, but for armv8 "safely dereferenced" means it must be aligned *)
+          (* 0x20000 <= (p+a) && (p+b) < 0x100000000 && p % size_of(p) == 0 *)
+          Aand
+            ( Aand
+                ( Arel (Rle, int_to_arm 0x20000, arm_range_start),
+                  Arel (Rlt, arm_range_end, int_to_arm 0x100000000) ),
+              Arel
+                ( Req,
+                  (* Keep the type*)
+                  node_to_term base_ptr.ty
+                    (ABinOp
+                       ( AMod,
+                         base_ptr,
+                         int_to_arm (base_ptr.ty |> size_of |> word_to_bytes) )),
+                  int_to_arm 0 ) )
+      | _ ->
+          let arm_term = term_to_arm env term in
 
-      (*
+          (* The nullcheck is for "\valid{L}((char ptr)\null) and \valid_read{L}((char ptr)\null) are always false, forany logic label L"*)
+          (* The mod check is for aligment for armv8, technically frama-c have the \aligned keyword, but for armv8 "safely dereferenced" means it must be aligned *)
+
+          (*
         This is the same is HOL, but they check that the lower 3 bits are 0.
 
         adress bitwise-and 0b111 = 0
@@ -434,19 +472,19 @@ and valid_to_arm (env : arm_enviroment) (label : logic_label) (term : term) :
         val prog_addr_max_tm = ``0x20000w:word64``;
         val mem_addr_bound_tm = ``0x100000000w:word64``;
       *)
-      Aand
-        ( Aand
-            ( Arel (Rle, int_to_arm 0x20000, arm_term),
-              Arel (Rlt, arm_term, int_to_arm 0x100000000) ),
-          Arel
-            ( Req,
-              (* Keep the type*)
-              node_to_term arm_term.ty
-                (ABinOp
-                   ( AMod,
-                     arm_term,
-                     int_to_arm (logic_type_to_bytes term.term_type) )),
-              int_to_arm 0 ) )
+          Aand
+            ( Aand
+                ( Arel (Rle, int_to_arm 0x20000, arm_term),
+                  Arel (Rlt, arm_term, int_to_arm 0x100000000) ),
+              Arel
+                ( Req,
+                  (* Keep the type*)
+                  node_to_term arm_term.ty
+                    (ABinOp
+                       ( AMod,
+                         arm_term,
+                         int_to_arm (arm_term.ty |> size_of |> word_to_bytes) )),
+                  int_to_arm 0 ) ))
   | BuiltinLabel _ ->
       raise
         (ArmException
@@ -484,7 +522,47 @@ and predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
       (*if options.overflow then
         Aif (Aand (no_overflow_of_term a, no_overflow_of_term b), out, Aunknown)
       else out*)
-  | _ -> raise (ArmException "Unknown predicate_to_arm_predicate")
+  | Papp (info, _logical_label_list, term_list) -> (
+      match info.l_body with
+      | LBpred t ->
+          let mapped_terms =
+            List.map (fun term -> term_to_arm env term) term_list
+          in
+          List.iter2
+            (fun profile term ->
+              Hashtbl.add env.variables profile.lv_name (env.at, term.node))
+            info.l_profile mapped_terms;
+          (* Add let bindings *)
+          let eval = predicate_to_arm env t in
+          List.iter
+            (fun profile -> Hashtbl.remove env.variables profile.lv_name)
+            info.l_profile;
+          (* Remove let bindings *)
+          eval
+      | _ ->
+          raise
+            (ArmException
+               (Format.sprintf "Unable to translate applications like %s"
+                  (pp_spec Printer.pp_logic_info info))))
+  | Pseparated term_list ->
+      let arm_term_list = List.map (term_to_arm env) term_list in
+      (* Triangle cross product, e.g. [a,b,c] * [a,b,c] = [(a,b),(a,c),(b,c)] *)
+      let paris =
+        List.mapi
+          (fun index left ->
+            List.drop (index + 1) arm_term_list
+            |> List.map (fun right -> (left, right)))
+          arm_term_list
+        |> List.flatten
+      in
+      List.fold_left
+        (fun acc (l, r) -> Aand (acc, Arel (Rneq, l, r)))
+        Atrue paris
+  | x ->
+      raise
+        (ArmException
+           (Format.sprintf "Unknown predicate_to_arm_predicate %s"
+              (pp_spec Printer.pp_predicate_node x)))
 
 and let_predicate (env : arm_enviroment) (info : logic_info)
     (fn : arm_enviroment -> arm_predicate) : arm_predicate =
@@ -539,8 +617,10 @@ let identified_predicate_list_to_arm (env : arm_enviroment)
 let behavior_to_arm (env : arm_enviroment) (fn : funbehavior) : arm_contract =
   env.at <- Post;
   let ensures =
-    identified_predicate_list_to_arm env
-      (List.map (fun (_term, item) -> item) fn.b_post_cond)
+    (* Only take the "Normal" termination_kind, as we only want \ensures on normal, not \exists  *)
+    List.filter (fun (x, _) -> x == Normal) fn.b_post_cond
+    |> List.map (fun (_term, item) -> item)
+    |> identified_predicate_list_to_arm env
   in
   env.at <- Pre;
   let requires = identified_predicate_list_to_arm env fn.b_requires in
@@ -614,8 +694,12 @@ let fn_to_arm (fn : fundec) : arm_contract =
           requires = Aand (contract.requires, acc_contract.requires);
           enviroment = contract.enviroment;
         })
+        (*
+        Missing requires and ensures clauses default to \true
+        Missing exits clauses default to \false.
+        If no assigns clause is given, it remains unspecified
+        *)
       { ensures = Atrue; requires = Atrue; enviroment = env }
-      (* Wrong default beahvior for ensures? *)
       behaviors
   in
   {
