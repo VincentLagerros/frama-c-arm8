@@ -78,7 +78,7 @@ Variable b_SourceCode : Type.
 Variable b_MachineCode : Type.
 
 (* type of observable behaviors *)
-Variable b_Trace : Type.
+Variable b_Observation : Type.
 
 (* composition of source code behaviors *)
 Variable b_SourceCode_comp : b_SourceCode -> b_SourceCode -> b_SourceCode.
@@ -93,10 +93,10 @@ Variable B_SourceCode : propset b_SourceCode.
 Variable B_MachineCode : propset b_MachineCode.
 
 (* observation of source code *)
-Variable trace_SourceCode : b_SourceCode -> b_Trace.
+Variable observe_SourceCode : b_SourceCode -> b_Observation.
 
-(* observation of machin code *)
-Variable trace_MachineCode : b_MachineCode -> b_Trace.
+(* observation of machine code *)
+Variable observe_MachineCode : b_MachineCode -> b_Observation.
 
 (* abstractly compile source component and model to machine component and model *)
 Variable compile_c : c -> (cn -> b_SourceCode) -> c * (cn -> b_MachineCode).
@@ -105,8 +105,8 @@ Variable compile_c : c -> (cn -> b_SourceCode) -> c * (cn -> b_MachineCode).
 Definition correct_compile_c : Prop :=
   forall (c_src c_mc : c) Mc Mc',
    compile_c c_src Mc = (c_mc, Mc') ->
-   trace_SourceCode (c_sem b_SourceCode b_SourceCode_comp Mc c_src) =
-   trace_MachineCode (c_sem b_MachineCode b_MachineCode_comp Mc' c_mc).
+   observe_SourceCode (c_sem b_SourceCode b_SourceCode_comp Mc c_src) =
+   observe_MachineCode (c_sem b_MachineCode b_MachineCode_comp Mc' c_mc).
 
 (* 
  correct compilation means we don't have to verify machine code
@@ -117,8 +117,8 @@ Lemma correct_compile_c_obviates_machine_code_verification :
   forall c_src c_mc Mc Mc',
     compile_c c_src Mc = (c_mc, Mc') ->
     forall S_src MS, P_sem b_SourceCode b_SourceCode_comp B_SourceCode Mc MS (P_implements c_src S_src) ->
-    trace_MachineCode (c_sem b_MachineCode b_MachineCode_comp Mc' c_mc) ∈
-    {[ x | exists y, y ∈ S_sem b_SourceCode b_SourceCode_comp B_SourceCode MS S_src /\ trace_SourceCode y = x ]}.
+    observe_MachineCode (c_sem b_MachineCode b_MachineCode_comp Mc' c_mc) ∈
+    {[ x | exists y, y ∈ S_sem b_SourceCode b_SourceCode_comp B_SourceCode MS S_src /\ observe_SourceCode y = x ]}.
 Proof.
 unfold correct_compile_c.
 simpl.
@@ -133,8 +133,8 @@ Variable translate_S : S -> (Sn -> propset b_SourceCode) -> S * (Sn -> propset b
 Definition correct_translate_S : Prop :=
  forall (S_src S_mc : S) MS MS',
  translate_S S_src MS = (S_mc, MS') ->
- {[ x | exists y, y ∈ S_sem b_MachineCode b_MachineCode_comp B_MachineCode MS' S_mc /\ trace_MachineCode y = x ]} ⊆
- {[ x | exists y, y ∈ S_sem b_SourceCode b_SourceCode_comp B_SourceCode MS S_src /\ trace_SourceCode y = x ]}.
+ {[ x | exists y, y ∈ S_sem b_MachineCode b_MachineCode_comp B_MachineCode MS' S_mc /\ observe_MachineCode y = x ]} ⊆
+ {[ x | exists y, y ∈ S_sem b_SourceCode b_SourceCode_comp B_SourceCode MS S_src /\ observe_SourceCode y = x ]}.
 
 (* 
  correct translation means that, regardless of the compiler,
@@ -149,8 +149,8 @@ Lemma correct_translate_S_obviates_correct_compilation :
      translate_S S_src MS = (S_mc, MS') ->
      P_sem b_SourceCode b_SourceCode_comp B_SourceCode Mc MS (P_implements c_src S_src) ->
      P_sem b_MachineCode b_MachineCode_comp B_MachineCode Mc' MS' (P_implements c_mc S_mc) ->
-     trace_MachineCode (c_sem b_MachineCode b_MachineCode_comp Mc' c_mc) ∈
-     {[ x | exists y, y ∈ S_sem b_SourceCode b_SourceCode_comp B_SourceCode MS S_src /\ trace_SourceCode y = x ]}.
+     observe_MachineCode (c_sem b_MachineCode b_MachineCode_comp Mc' c_mc) ∈
+     {[ x | exists y, y ∈ S_sem b_SourceCode b_SourceCode_comp B_SourceCode MS S_src /\ observe_SourceCode y = x ]}.
 Proof.
 unfold correct_translate_S.
 simpl.
