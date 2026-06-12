@@ -1,6 +1,6 @@
 From stdpp Require Import prelude strings gmap stringmap functions countable.
 From stdpp Require Import propset.
-From SmallSpec Require Import small.
+From Spec Require Import small.
 
 Section Sem.
 

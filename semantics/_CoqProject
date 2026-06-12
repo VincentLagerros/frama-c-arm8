@@ -1,4 +1,7 @@
--Q . SmallSpec
+-Q . Spec
 
 small.v
 small_meta.v
+comp_spec_defs.v
+comp_spec_meta.v
+comp_spec_trans.v
