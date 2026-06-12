@@ -147,7 +147,6 @@ Lemma correct_translate_S_obviates_correct_compilation :
    compile_c c_src Mc = (c_mc, Mc') ->
    forall (S_src S_mc : S) MS MS',
      translate_S S_src MS = (S_mc, MS') ->
-     P_sem b_SourceCode b_SourceCode_comp B_SourceCode Mc MS (P_implements c_src S_src) ->
      P_sem b_MachineCode b_MachineCode_comp B_MachineCode Mc' MS' (P_implements c_mc S_mc) ->
      observe_MachineCode (c_sem b_MachineCode b_MachineCode_comp Mc' c_mc) ∈
      {[ x | exists y, y ∈ S_sem b_SourceCode b_SourceCode_comp B_SourceCode MS S_src /\ observe_SourceCode y = x ]}.
