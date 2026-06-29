@@ -96,6 +96,10 @@ let typ_to_bytes (typ : typ) : int = typ_to_size typ |> word_to_bytes
 
 let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
   (* Keep the same type as the Frama-C AST *)
+  (*print_string
+    (Format.sprintf "term_to_arm (%s : %s) \n"
+       (pp_spec Printer.pp_term term)
+       (pp_spec pp_logic_type2 term.term_type));*)
   node_to_term
     (logic_type_to_arm term.term_type)
     (match term.term_node with
@@ -114,12 +118,10 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
         *)
         AUnOp
           ( op,
-            node_to_term
+            cast_to_arm_term env
+              (logic_type_to_arm inner_term.term_type)
               (logic_type_to_arm term.term_type)
-              (cast_to_arm_term env
-                 (logic_type_to_arm inner_term.term_type)
-                 (logic_type_to_arm term.term_type)
-                 (term_to_arm env inner_term)) )
+              (term_to_arm env inner_term) )
     | TLval (host, offset) -> l_value_to_arm env host offset
     | Tat (t, label) -> at_to_arm env t label
     | Tif (t1, t2, t3) ->
@@ -222,7 +224,7 @@ and binop_to_arm (env : arm_enviroment) (op : binop) (lhs : term) (rhs : term) :
                   happend")
       in
       ABinOp (inner_op, lhs_t, rhs_t)
-  (* Adding an integer to a pointer is the equavalent of (uint64_t)lhs + rhs*size_of( *lhs ) *)
+  (* Adding an integer to a pointer is the equavalent of (uint64_t)lhs + (int64_t)rhs*size_of( *lhs ) *)
   | PlusPI | MinusPI ->
       let inner_op =
         match op with
@@ -241,8 +243,11 @@ and binop_to_arm (env : arm_enviroment) (op : binop) (lhs : term) (rhs : term) :
         ( inner_op,
           lhs_t,
           node_to_term ty
-            (ABinOp (AMult, rhs_t, ty |> size_of |> word_to_bytes |> int_to_arm))
-        )
+            (ABinOp
+               ( AMult,
+                 (* cast to int64 before the mul, as lhs and rhs must both be int64 *)
+                 cast_to_arm_term env rhs_t.ty (AInt (true, Word64)) rhs_t,
+                 ty |> size_of |> word_to_bytes |> int_to_arm )) )
   | MinusPP ->
       (* a - b means, how many items they are apart, not bytes. So we represent that with `((uint64_t)a-(uint64_t)b) / sizeof( *a )` *)
       let ty = pointer_type lhs_t.ty in
@@ -282,56 +287,59 @@ and cast_to_arm (env : arm_enviroment) (_is_implicit_conversion : bool)
        (pp_spec pp_logic_type2 convert_to_type)
        (pp_spec Printer.pp_term term)
        _is_implicit_conversion);*)
-  cast_to_arm_term env from_ty to_ty arm_term
+  (cast_to_arm_term env from_ty to_ty arm_term).node
 
 and cast_to_arm_term (_env : arm_enviroment) (from_ty : arm_type)
-    (to_ty : arm_type) (arm_term : arm_term) : arm_term_node =
-  match (from_ty, to_ty) with
-  | AVoid, _ | _, AVoid ->
-      raise (ArmException "Unable to cast to of from a void type")
-  (* No need to do any complicated math here when chaning the sign, as this is equivalent to transmute if the size is the same *)
-  | AInt (_, Word32), AInt (_, Word32)
-  | AInt (_, Word16), AInt (_, Word16)
-  | AInt (_, Word8), AInt (_, Word8)
-  | AInt (_, Word64), AInt (_, Word64)
-  (* Same size so transmute *)
-  | APtr _, APtr _
-  | ABool, ABool
-  | APtr _, AInt (_, Word64)
-  | AInt (_, Word64), APtr _ ->
-      arm_term.node
-  (* Sign extend signed numbers *)
-  | AInt (true, from_size), AInt (_, to_size) ->
-      if word_to_bytes from_size < word_to_bytes to_size then
-        ACast (ASignExtend, to_size, arm_term)
-      else ACast (AExtract, to_size, arm_term)
-  (* Zero extend unsigned numbers *)
-  | AInt (false, from_size), AInt (_, to_size) ->
-      if word_to_bytes from_size < word_to_bytes to_size then
-        ACast (AZeroExtend, to_size, arm_term)
-      else ACast (AExtract, to_size, arm_term)
-  (* if b then 1 else 0 *)
-  | ABool, AInt _ ->
-      Aif
-        ( arm_term,
-          1 |> int_to_arm_node |> node_to_term to_ty,
-          0 |> int_to_arm_node |> node_to_term to_ty )
-  (* ptr -> int just extracts the lower bits *)
-  | APtr _, AInt (_, to_size) -> ACast (AExtract, to_size, arm_term)
-  (* Sign extend signed numbers to a pointer, this is the C semantics *)
-  | AInt (true, _), APtr _ -> ACast (ASignExtend, Word64, arm_term)
-  (* Zero extend unsigned numbers to a pointer, this is the C semantics *)
-  | AInt (false, _), APtr _ -> ACast (AZeroExtend, Word64, arm_term)
-  (* This is done by frama-c, but we detail the semantics here as well *)
-  | AInt _, ABool | APtr _, ABool ->
-      (* ptr/int != nullptr/0 *)
-      ABinOp (ANe, arm_term, 0 |> int_to_arm_node |> node_to_term from_ty)
-  (* It makes no sense to cast a boolean to a pointer, frama-c errors on this *)
-  | ABool, APtr _ ->
-      raise
-        (ArmException
-           "A cast from a boolean to a ptr is not allowed, and does not make \
-            sense")
+    (to_ty : arm_type) (arm_term : arm_term) : arm_term =
+  let node =
+    match (from_ty, to_ty) with
+    | AVoid, _ | _, AVoid ->
+        raise (ArmException "Unable to cast to of from a void type")
+    (* No need to do any complicated math here when chaning the sign, as this is equivalent to transmute if the size is the same *)
+    | AInt (_, Word32), AInt (_, Word32)
+    | AInt (_, Word16), AInt (_, Word16)
+    | AInt (_, Word8), AInt (_, Word8)
+    | AInt (_, Word64), AInt (_, Word64)
+    (* Same size so transmute *)
+    | APtr _, APtr _
+    | ABool, ABool
+    | APtr _, AInt (_, Word64)
+    | AInt (_, Word64), APtr _ ->
+        arm_term.node
+    (* Sign extend signed numbers *)
+    | AInt (true, from_size), AInt (_, to_size) ->
+        if word_to_bytes from_size < word_to_bytes to_size then
+          ACast (ASignExtend, to_size, arm_term)
+        else ACast (AExtract, to_size, arm_term)
+    (* Zero extend unsigned numbers *)
+    | AInt (false, from_size), AInt (_, to_size) ->
+        if word_to_bytes from_size < word_to_bytes to_size then
+          ACast (AZeroExtend, to_size, arm_term)
+        else ACast (AExtract, to_size, arm_term)
+    (* if b then 1 else 0 *)
+    | ABool, AInt _ ->
+        Aif
+          ( arm_term,
+            1 |> int_to_arm_node |> node_to_term to_ty,
+            0 |> int_to_arm_node |> node_to_term to_ty )
+    (* ptr -> int just extracts the lower bits *)
+    | APtr _, AInt (_, to_size) -> ACast (AExtract, to_size, arm_term)
+    (* Sign extend signed numbers to a pointer, this is the C semantics *)
+    | AInt (true, _), APtr _ -> ACast (ASignExtend, Word64, arm_term)
+    (* Zero extend unsigned numbers to a pointer, this is the C semantics *)
+    | AInt (false, _), APtr _ -> ACast (AZeroExtend, Word64, arm_term)
+    (* This is done by frama-c, but we detail the semantics here as well *)
+    | AInt _, ABool | APtr _, ABool ->
+        (* ptr/int != nullptr/0 *)
+        ABinOp (ANe, arm_term, 0 |> int_to_arm_node |> node_to_term from_ty)
+    (* It makes no sense to cast a boolean to a pointer, frama-c errors on this *)
+    | ABool, APtr _ ->
+        raise
+          (ArmException
+             "A cast from a boolean to a ptr is not allowed, and does not make \
+              sense")
+  in
+  node_to_term to_ty node
 (*| _ ->
       raise
         (ArmException
@@ -516,12 +524,40 @@ and predicate_to_arm (env : arm_enviroment) (predicate : predicate) :
         )
       (* Even if valid_read != valid, for our purposes it is equivalent as we have no restrictions on write/read *)
   | Pvalid (label, t) | Pvalid_read (label, t) -> valid_to_arm env label t
-  | Prel (rel, t1, t2) ->
-      Arel (rel, term_to_arm env t1, term_to_arm env t2)
-      (* TODO overflow *)
-      (*if options.overflow then
-        Aif (Aand (no_overflow_of_term a, no_overflow_of_term b), out, Aunknown)
-      else out*)
+  | Prel (rel, t1, t2) -> (
+      (*print_string
+    (Format.sprintf "Arel (%s : %s) (%s : %s) \n"
+       (pp_spec Printer.pp_term t1)
+       (pp_spec pp_logic_type2 t1.term_type)
+       (pp_spec Printer.pp_term t2)
+       (pp_spec pp_logic_type2 t2.term_type));*)
+      let t1_type = logic_type_to_arm t1.term_type in
+      let t2_type = logic_type_to_arm t2.term_type in
+
+      if t1_type = t2_type then
+        Arel (rel, term_to_arm env t1, term_to_arm env t2)
+      else
+        (* I have no idea why, but frama-c *can* generate an ast where the lhs and rhs have different types, 
+           aka not cast to Z? Is this a bug in frama-c? *)
+        match (t1_type, t2_type) with
+        | AInt _, AInt _ ->
+            (* Cast both to int64_t *)
+            Arel
+              ( rel,
+                term_to_arm env t1
+                |> cast_to_arm_term env t1_type (AInt (true, Word64)),
+                term_to_arm env t2
+                |> cast_to_arm_term env t2_type (AInt (true, Word64)) )
+        | _ ->
+            raise
+              (ArmException
+                 (Format.sprintf
+                    "Relation predicate with incomparable types (%s : %s) (%s \
+                     : %s)"
+                    (pp_spec Printer.pp_term t1)
+                    (pp_spec pp_logic_type2 t1.term_type)
+                    (pp_spec Printer.pp_term t2)
+                    (pp_spec pp_logic_type2 t2.term_type))))
   | Papp (info, _logical_label_list, term_list) -> (
       match info.l_body with
       | LBpred t ->

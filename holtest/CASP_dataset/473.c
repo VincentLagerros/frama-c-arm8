@@ -1,0 +1,2 @@
+/*@ assigns \nothing; */
+void foo() {}

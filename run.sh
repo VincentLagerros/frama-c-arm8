@@ -1,1 +1,1 @@
-dune build && dune exec -- frama-c -arm8 examples/default/main.c -arm8-type="hol"
+dune build && dune exec -- frama-c -arm8 examples/default/main.c -arm8-type="dbg"

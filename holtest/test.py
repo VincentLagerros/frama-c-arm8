@@ -7,20 +7,32 @@
 
 from os import system
 import os
-
-def check(result):
-    if result:
-        print(f"Error {result}")
-        exit(result)
-
-folder = "ai-generated/"
-dir_list = os.listdir(folder)
+import time
+folder = "acsl-by-example/"
+dir_list = sorted(os.listdir(folder))
 
 for file in dir_list:
-    if not ".c" in file:
+    if not file.endswith(".c"):
         continue
+    start = time.time()
     print(f"============ Testing {file} ============")
-    result = system(f'cat ../hol-template/spec_arm8Script.sml > spec_arm8Script.sml && dune exec -- frama-c -arm8 {folder}{file} -arm8-type="hol" -verbose 0 -debug 0 >> spec_arm8Script.sml')
-    check(result)
-    result = system('Holmake')
-    check(result)
+    
+    #if (input().strip()) != "":
+    #    break
+
+    hol_result = -1
+    compile_result = -1
+    hol_time = start
+    compile_result = system(f'cat ../hol-template/spec_arm8Script.sml > spec_arm8Script.sml && dune exec -- frama-c -arm8 {folder}{file} -arm8-type="hol" -verbose 0 -debug 0 >> spec_arm8Script.sml')
+    compile_time = time.time()
+
+    if compile_result:
+        system(f"cp spec_arm8Script.sml compile-error/{file.replace(".c", ".sml")}")
+    else:
+        system(f"cp spec_arm8Script.sml compile-success/{file.replace(".c", ".sml")}")
+        hol_result = system('Holmake')
+        hol_time = time.time()
+        if hol_result:
+            system(f"cp spec_arm8Script.sml hol-error/{file.replace(".c", ".sml")}")
+    
+    system(f"echo \"{compile_time-start} {hol_time-start} {compile_result} {hol_result}\" > stats/{file.replace(".c", ".txt")}")

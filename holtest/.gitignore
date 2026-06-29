@@ -1,3 +1,7 @@
 .hol
 .hollogs
 .HOLMK
+retest/
+hol-error/
+compile-success/
+compile-error/
