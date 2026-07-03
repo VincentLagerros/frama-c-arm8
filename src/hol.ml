@@ -40,8 +40,9 @@ let rec pp_arm_lvalue (out : contract_printer) (host : arm_term_lhost) =
 and pp_arm_unop (out : contract_printer) (op : arm_unop) (term : arm_term) :
     unit =
   let prefix = match op with BNot -> "~" | LNot -> "~" | Neg -> "-" in
-  Format.fprintf out.fmt "%s" prefix;
-  pp_arm_term out term
+  Format.fprintf out.fmt "(%s" prefix;
+  pp_arm_term out term;
+  Format.fprintf out.fmt ")";
 
 and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
     (to_size : arm_word_size) (from_size : arm_word_size)
@@ -139,6 +140,28 @@ and pp_arm_term (out : contract_printer) (term : arm_term) =
   | SP -> Format.fprintf out.fmt "s.SP_EL0"
   | AUnOp (op, term) -> pp_arm_unop out op term
   | ACast (cast, size, term) -> pp_arm_cast out cast size (size_of term.ty) term
+  | ABuiltin (name, args) ->
+      (* We assume the builtin applications works on the same type *)
+      let arg1 = args |> List.hd in
+      let signed = type_to_signed arg1.ty in
+      let application_name =
+        match (signed, name) with
+        | true, AMax -> "word_smax"
+        | false, AMax -> "word_max"
+        | true, AMin -> "word_smin"
+        | false, AMin -> "word_min"
+        | _, AAbs -> "word_abs"
+        (*| true, APow -> "word_sexp"
+        | false, APow -> "word_exp"*)
+      in
+      let fmt = out.fmt in
+      Format.fprintf fmt "(%s " application_name;
+      pp_arm_term out arg1;
+      List.drop 1 args
+      |> List.iter (fun x ->
+          Format.fprintf fmt " ";
+          pp_arm_term out x);
+      Format.fprintf fmt " : word%d)" (arg1.ty |> size_of |> word_to_bits)
   | Aif (c, t1, t2) ->
       let fmt = out.fmt in
       Format.fprintf fmt "if (";

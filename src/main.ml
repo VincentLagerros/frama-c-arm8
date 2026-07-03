@@ -151,8 +151,13 @@ let run () =
       main chan;
       flush chan;
       close_out chan)
-  with Sys_error _ as exc ->
-    let msg = Printexc.to_string exc in
-    Printf.eprintf "There was an error: %s\n" msg
+  with
+  | Specification.ArmException x ->
+      Printf.eprintf "Unsupported contract: %s\n" x;
+      exit 1
+  | Sys_error _ as exc ->
+      let msg = Printexc.to_string exc in
+      Printf.eprintf "There was an error: %s\n" msg;
+      exit 1
 
 let () = Boot.Main.extend run

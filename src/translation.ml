@@ -58,7 +58,8 @@ let rec typ_to_arm (typ : typ) : arm_type =
   | TInt x -> ikind_to_arm x
   | TEnum enum -> ikind_to_arm enum.ekind
   | TNamed info -> typ_to_arm info.ttype
-  | TFloat _ -> raise (ArmException "Floats are not supported by L3")
+  | TFloat _ ->
+      raise (ArmException "Floating point numbers are not supported by L3")
   | TFun _ -> raise (ArmException "Functions are not supported")
   | _ ->
       raise
@@ -70,7 +71,11 @@ let logic_type_to_arm (logic_type : logic_type) : arm_type =
   | Ctype typ -> typ_to_arm typ
   | Lboolean -> ABool
   | Linteger -> AInt (true, Word64)
-  | _ -> raise (ArmException "Unknown logic_type_to_arm")
+  | _ ->
+      raise
+        (ArmException
+           (Format.sprintf "Unknown logic_type_to_arm in type '%s'"
+              (pp_spec Printer.pp_logic_type logic_type)))
 
 let typ_to_size (typ : typ) = typ |> typ_to_arm |> size_of
 
@@ -153,10 +158,27 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
               info.l_profile;
             (* Remove let bindings *)
             eval
+        | LBnone ->
+            let fn =
+              match info.l_var_info.lv_name with
+              | "\\abs" -> AAbs
+              | "\\min" -> AMin
+              | "\\max" -> AMax
+              (*| "pow" -> APow *)
+              | _ ->
+                  raise
+                    (ArmException
+                       (Format.sprintf "Unable to use built-in applications like %s"
+                          info.l_var_info.lv_name))
+            in
+            let mapped_terms =
+              List.map (fun term -> term_to_arm env term) term_list
+            in
+            ABuiltin (fn, mapped_terms)
         | _ ->
             raise
               (ArmException
-                 (Format.sprintf "Unable to translate applications like %s"
+                 (Format.sprintf "Unable to translate application %s"
                     (pp_spec Printer.pp_logic_info info))))
     | _ ->
         raise
@@ -348,17 +370,23 @@ and cast_to_arm_term (_env : arm_enviroment) (from_ty : arm_type)
               (pp_spec pp_logic_type2 convert_to_type)))*)
 
 and logic_var_to_arm (env : arm_enviroment) (lvar : logic_var) : arm_term_node =
-  let location, out = Hashtbl.find env.variables lvar.lv_name in
-
-  (* *&x can smuggle variables into the post-state, we need to check that we are in an \old state to do this! *)
-  match (env.at, location) with
-  | Post, Pre ->
+  match Hashtbl.find_opt env.variables lvar.lv_name with
+  | None ->
       raise
         (ArmException
-           "Unable to refer to variables declared in the pre-condition when in \
-            the post-condition")
-  (* The other way around is fine, as \let x; \old(x + 1) is fine. *)
-  | _ -> out
+           (Printf.sprintf
+              "Variable %s not found, global variables are unsupported"
+              lvar.lv_name))
+  | Some (location, out) -> (
+      (* *&x can smuggle variables into the post-state, we need to check that we are in an \old state to do this! *)
+      match (env.at, location) with
+      | Post, Pre ->
+          raise
+            (ArmException
+               "Unable to refer to variables declared in the pre-condition \
+                when in the post-condition")
+      (* The other way around is fine, as \let x; \old(x + 1) is fine. *)
+      | _ -> out)
 
 and l_value_to_arm (env : arm_enviroment) (lhost : term_lhost)
     (offset : term_offset) : arm_term_node =
@@ -718,6 +746,7 @@ let sformals_to_env (fn : fundec) : arm_enviroment =
 
 let fn_to_arm (fn : fundec) : arm_contract =
   let kf = Globals.Functions.get fn.svar in
+  (* By default this is complete as it merges every behavior *)
   let behaviors = Annotations.behaviors kf in
   let (env : arm_enviroment) = sformals_to_env fn in
 

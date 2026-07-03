@@ -47,9 +47,7 @@ and arm_type =
   | AVoid
 [@@deriving eq]
 
-and arm_term = { node : arm_term_node; ty : arm_type }
-[@@deriving eq]
-
+and arm_term = { node : arm_term_node; ty : arm_type } [@@deriving eq]
 and arm_logic_var = string
 and arm_word_size = Word8 | Word16 | Word32 | Word64 [@@deriving eq]
 
@@ -63,9 +61,7 @@ and arm_term_lhost =
   | AMemory of arm_term * arm_word_size
 [@@deriving eq]
 
-and arm_term_lval = arm_term_lhost
-[@@deriving eq]
-
+and arm_term_lval = arm_term_lhost [@@deriving eq]
 and arm_logic_constant = ABoolean of bool | AInteger of string
 
 and arm_binop =
@@ -126,7 +122,21 @@ and arm_term_node =
   (* Also used for boolean casting *)
   (* if c then p1 else p2 *)
   | Aif of arm_term * arm_term * arm_term
+  (* Applications like \min and \max *)
+  | ABuiltin of arm_builtin * arm_term list
 [@@deriving eq]
+
+(* Builtin functions *)
+and arm_builtin =
+  (* integer \min(integer x, integer y) ; *)
+  | AMin
+  (* integer \max(integer x, integer y) ; *)
+  | AMax
+  (* integer \abs(integer x) ; *)
+  | AAbs
+(* integer pow(integer x, integer y) ; *)
+(*| APow *)
+(* It looks like the pow built-in is bugged, as it just uses the "real" number pow instead ?*)
 
 type arm_overflow = arm_predicate option
 type arm_location = Pre | Post

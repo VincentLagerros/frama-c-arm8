@@ -126,6 +126,9 @@ and pp_arm_term_node (out : contract_printer) (node : arm_term_node) =
   | ALval host -> pp_arm_lvalue out host
   | SP -> Format.fprintf out.fmt "SP"
   | AUnOp (op, term) -> pp_arm_unop out op term
+  | ABuiltin (_, _) ->
+      raise
+        (ArmException (Format.sprintf "Unable to translate builtin application"))
   | ACast (cast, size, term) ->
       pp_arm_cast out cast size (size_of term.ty) term.node
   | Aif (c, t1, t2) ->

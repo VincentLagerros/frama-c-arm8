@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 
 # Sanity check for code generation, to check that it can be parsed by hol
-# Right now `1w = 1w` does not as it is not typed, for all practical purposes this is a non-issue
-
-# Note that `dune build` need to be ran in the root
+# Note that `dune build` need to be ran in the root to refresh the dune exec
 
 from os import system
 import os
 import time
-folder = "acsl-by-example/"
+folder = "CASP_dataset/"
 dir_list = sorted(os.listdir(folder))
 
 for file in dir_list:
+    # Manual break, dirty fix
+    if "exit" in os.listdir(folder): 
+        break
     if not file.endswith(".c"):
         continue
     start = time.time()
@@ -23,7 +24,7 @@ for file in dir_list:
     hol_result = -1
     compile_result = -1
     hol_time = start
-    compile_result = system(f'cat ../hol-template/spec_arm8Script.sml > spec_arm8Script.sml && dune exec -- frama-c -arm8 {folder}{file} -arm8-type="hol" -verbose 0 -debug 0 >> spec_arm8Script.sml')
+    compile_result = system(f'cat ../hol-template/spec_arm8Script.sml > spec_arm8Script.sml && dune exec --no-print-directory -- frama-c -arm8 {folder}{file} -arm8-type="hol" -verbose 0 -debug 0 -kernel-verbose 0 >> spec_arm8Script.sml 2>&1')
     compile_time = time.time()
 
     if compile_result:
