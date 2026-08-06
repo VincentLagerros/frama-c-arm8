@@ -168,7 +168,8 @@ let rec term_to_arm (env : arm_enviroment) (term : term) : arm_term =
               | _ ->
                   raise
                     (ArmException
-                       (Format.sprintf "Unable to use built-in applications like %s"
+                       (Format.sprintf
+                          "Unable to use built-in applications like %s"
                           info.l_var_info.lv_name))
             in
             let mapped_terms =
@@ -725,9 +726,16 @@ let fn_vars_to_old (args : varinfo list) :
     (arm_logic_var * string * arm_term) list =
   List.rev (List.mapi varinfo_to_old args)
 
-let sformals_to_env (fn : fundec) : arm_enviroment =
-  let arguments = fn_vars_to_old fn.sformals in
+let sformals_to_env (source : arm_translation_source) : arm_enviroment =
+  let arguments = fn_vars_to_old source.fn.sformals in
   let table = Hashtbl.create (List.length arguments) in
+
+  (* Dirty hack where you have to manually add the global variables as a user define "variable" *)
+  List.iter
+    (fun variable ->
+      Hashtbl.add table variable.vorig_name
+        (Post, ALval (AVar (Format.sprintf "global_%s" variable.vorig_name))))
+    source.globals;
 
   (* All variables are substituted like "Contract-Based Verification in TriCera" *)
   (* This maps c_name -> arm_name to make it easier to read than inserting the value directly, this is because we do arm_name = value with old *)
@@ -735,6 +743,7 @@ let sformals_to_env (fn : fundec) : arm_enviroment =
     (fun (c_name, arm_name, _value) ->
       Hashtbl.add table c_name (Pre, ALval (AVar arm_name)))
     arguments;
+
   {
     variables = table;
     predicates = Hashtbl.create 0;
@@ -744,11 +753,11 @@ let sformals_to_env (fn : fundec) : arm_enviroment =
     at = Pre;
   }
 
-let fn_to_arm (fn : fundec) : arm_contract =
-  let kf = Globals.Functions.get fn.svar in
+let fn_to_arm (source : arm_translation_source) : arm_contract =
+  let kf = Globals.Functions.get source.fn.svar in
   (* By default this is complete as it merges every behavior *)
   let behaviors = Annotations.behaviors kf in
-  let (env : arm_enviroment) = sformals_to_env fn in
+  let (env : arm_enviroment) = sformals_to_env source in
 
   let contract =
     List.fold_left

@@ -304,9 +304,10 @@ let print_contract (out : Format.formatter) (contract : arm_contract) =
   Format.fprintf out "R = Ensures\n";
   Format.fprintf out "\n"
 
-let print_arm_overflow (out : Format.formatter) (fn : fundec) =
+let print_arm_overflow (out : Format.formatter)
+    (source : arm_translation_source) =
   let (formatter : contract_printer) = { fmt = out } in
-  let contract = fn_to_arm fn in
+  let contract = fn_to_arm source in
 
   (* Check if the contract implies is equal to itself, aka if overflow affects the result *)
   let check =
@@ -316,8 +317,9 @@ let print_arm_overflow (out : Format.formatter) (fn : fundec) =
   in
   pp_arm_predicate formatter check
 
-let print_definition (out : Format.formatter) (fn : fundec) =
-  let contract = Translation.fn_to_arm fn in
+let print_definition (out : Format.formatter) (source : arm_translation_source)
+    =
+  let contract = Translation.fn_to_arm source in
   print_contract out contract
 
 (* Z3 fails to prove basic properties of Bit Vectors,

@@ -42,7 +42,7 @@ and pp_arm_unop (out : contract_printer) (op : arm_unop) (term : arm_term) :
   let prefix = match op with BNot -> "~" | LNot -> "~" | Neg -> "-" in
   Format.fprintf out.fmt "(%s" prefix;
   pp_arm_term out term;
-  Format.fprintf out.fmt ")";
+  Format.fprintf out.fmt ")"
 
 and pp_arm_cast_fn (out : contract_printer) (cast : arm_cast)
     (to_size : arm_word_size) (from_size : arm_word_size)
@@ -269,15 +269,57 @@ let add_variables (variables : (arm_logic_var * arm_term) list)
     (fun p (name, term) -> add_variable term name p)
     predicate variables
 
-let print_definition (out : Format.formatter) (fn : fundec) =
-  let (fmt : contract_printer) = { fmt = out; post = false } in
-  let contract = Translation.fn_to_arm fn in
+let print_list (out : Format.formatter) (prefix : string)
+    (list : identified_predicate list) =
+  List.iter
+    (fun fn ->
+      (* Double print, otherwise we get nested formatting logic *)
+      Format.fprintf out "%s %s;\n" prefix
+        (Format.asprintf "%a" Printer.pp_predicate_node
+           fn.ip_content.tp_statement.pred_content))
+    list
 
+let print_header (out : Format.formatter) (globals : varinfo list) =
+  if globals |> List.is_empty |> not then (
+    Format.fprintf out "(* -------------- *)\n";
+    Format.fprintf out "(* ARMv8 globals  *)\n";
+    Format.fprintf out "(* -------------- *)\n\n");
+
+  (* 
+  Dirty hack to include globals by letting the user define the global themself ;)
+
+  The main problem with globals is that they are pointers with an unknown address, so we can not reason with them
+  *)
+  List.iter
+    (fun variable ->
+      Format.fprintf out "Definition global_%s_def:\n  global_%s = ...\nEnd\n\n"
+        variable.vorig_name variable.vorig_name)
+    globals;
   Format.fprintf out "(* -------------- *)\n";
   Format.fprintf out "(* ARMv8 contract *)\n";
-  Format.fprintf out "(* -------------- *)\n";
+  Format.fprintf out "(* -------------- *)\n"
+
+let print_definition (out : Format.formatter) (print_ast : bool)
+    (source : arm_translation_source) =
+  let (fmt : contract_printer) = { fmt = out; post = false } in
+  let fn = source.fn in
+  let kf = Globals.Functions.get fn.svar in
+  let behaviors = Annotations.behaviors kf in
+  let contract = Translation.fn_to_arm source in
 
   Format.fprintf out "\n(* ==== Function %s ====*)\n" fn.svar.vname;
+  if
+    print_ast
+    && List.exists (fun fn -> fn.b_requires |> List.is_empty |> not) behaviors
+  then (
+    Format.fprintf out "(* \n";
+    List.iter
+      (fun st ->
+        if st.b_name <> "default!" then Format.fprintf out "%s: \n" st.b_name;
+        print_list out "  requires" st.b_requires)
+      behaviors;
+    Format.fprintf out "*) \n");
+
   Format.fprintf out "Definition arm8_%s_pre_def:\n" fn.svar.vname;
   Format.fprintf out " arm8_%s_pre " fn.svar.vname;
 
@@ -290,7 +332,18 @@ let print_definition (out : Format.formatter) (fn : fundec) =
     (add_variables contract.enviroment.old contract.requires |> simplify);
 
   Format.fprintf out ")\nEnd\n\n";
-
+  if
+    print_ast
+    && List.exists (fun fn -> fn.b_post_cond |> List.is_empty |> not) behaviors
+  then (
+    Format.fprintf out "(* \n";
+    List.iter
+      (fun st ->
+        if st.b_name <> "default!" then Format.fprintf out "%s: \n" st.b_name;
+        print_list out "  ensures"
+          (st.b_post_cond |> List.map (fun (_, item) -> item)))
+      behaviors;
+    Format.fprintf out "*) \n");
   Format.fprintf out "Definition arm8_%s_post_def:\n" fn.svar.vname;
   Format.fprintf out " arm8_%s_post " fn.svar.vname;
 

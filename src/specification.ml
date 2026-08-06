@@ -160,6 +160,13 @@ type arm_contract = {
   enviroment : arm_enviroment;
 }
 
+type arm_translation_source = {
+  (* function to translate *)
+  fn : fundec;
+  (* list of relevant global variables *)
+  globals : varinfo list;
+}
+
 (*type contract_options = { overflow : bool }*)
 
 (* If we can simplify it, then do it. This is just an ad hoc solution to simplify trivial expressions intoduced in folding *)
