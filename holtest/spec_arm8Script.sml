@@ -16,15 +16,3 @@ Definition arm8_load_64_def:
      ((m (a + 1w)) @@ (m (a + 0w))):bool[16]):bool[24])):bool[32])
     ):bool[40])):bool[48])):bool[56])):bool[64])
 End
-
-(* ------------------ *)
-(* Program boundaries *)
-(* ------------------ *)
-
-Definition swap_init_addr_def:
- swap_init_addr : word64 = 0x718w
-End
-
-Definition swap_end_addr_def:
- swap_end_addr : word64 = 0x730w
-End
