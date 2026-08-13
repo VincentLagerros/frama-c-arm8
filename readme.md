@@ -32,6 +32,12 @@ Generated hol files can test build by editing the `spec_arm8Script.sml` template
 
 `-arm8-output <file>` Specify the output destination
 
-`-arm8-type <hol|py|dbg>` Specify the output format, default is Hol4 (`hol`)
+`-arm8-type <holba|hol|py|dbg>` Specify the output format, default is HolBA (`holba`)
+* `holba`: Prints Hol4 code, without helper functions
+* `hol`: Prints Hol4 code, with helper functions 
+* `py`: Prints Python code with Z3
+* `dbg`: Debug output 
 
 `-arm8-acsl` Enables pretty printing of the ensures/requires clause as a HOL comment
+
+`-arm8-globals` Enables globals variables to be used in a contract, but does not autogenerate the code for the globals

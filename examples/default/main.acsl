@@ -1,6 +1,0 @@
-module max:
-
-function max:
-  contract:
-    requires \true;
-    ensures (\result == \old(x) || \result == \old(y)) && \old(x) <= \result && \old(y) <= \result;

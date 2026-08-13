@@ -164,7 +164,7 @@ type arm_translation_source = {
   (* function to translate *)
   fn : fundec;
   (* list of relevant global variables *)
-  globals : varinfo list;
+  globals : (varinfo * initinfo option) list;
 }
 
 (*type contract_options = { overflow : bool }*)

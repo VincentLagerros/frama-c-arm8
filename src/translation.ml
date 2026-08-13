@@ -376,7 +376,7 @@ and logic_var_to_arm (env : arm_enviroment) (lvar : logic_var) : arm_term_node =
       raise
         (ArmException
            (Printf.sprintf
-              "Variable %s not found, global variables are unsupported"
+              "Variable %s not found, global variables are unsupported. Use -arm8-global to generate a scaffold"
               lvar.lv_name))
   | Some (location, out) -> (
       (* *&x can smuggle variables into the post-state, we need to check that we are in an \old state to do this! *)
@@ -732,7 +732,7 @@ let sformals_to_env (source : arm_translation_source) : arm_enviroment =
 
   (* Dirty hack where you have to manually add the global variables as a user define "variable" *)
   List.iter
-    (fun variable ->
+    (fun (variable,_) ->
       Hashtbl.add table variable.vorig_name
         (Post, ALval (AVar (Format.sprintf "global_%s" variable.vorig_name))))
     source.globals;

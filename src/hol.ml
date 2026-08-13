@@ -279,7 +279,8 @@ let print_list (out : Format.formatter) (prefix : string)
            fn.ip_content.tp_statement.pred_content))
     list
 
-let print_header (out : Format.formatter) (globals : varinfo list) =
+let print_header (out : Format.formatter)
+    (globals : (varinfo * initinfo option) list) =
   if globals |> List.is_empty |> not then (
     Format.fprintf out "(* -------------- *)\n";
     Format.fprintf out "(* ARMv8 globals  *)\n";
@@ -290,11 +291,18 @@ let print_header (out : Format.formatter) (globals : varinfo list) =
 
   The main problem with globals is that they are pointers with an unknown address, so we can not reason with them
   *)
-  List.iter
-    (fun variable ->
-      Format.fprintf out "Definition global_%s_def:\n  global_%s = ...\nEnd\n\n"
-        variable.vorig_name variable.vorig_name)
-    globals;
+  globals |> List.rev
+  |> List.iter (fun (variable, initalizer) ->
+      Format.fprintf out "Definition global_%s_def:\n  global_%s = "
+        variable.vorig_name variable.vorig_name;
+
+      (match initalizer with
+      | Some x ->
+          Format.fprintf out "(* ";
+          Printer.pp_initinfo out x;
+          Format.fprintf out " *)"
+      | None -> Format.fprintf out "...");
+      Format.fprintf out "\nEnd\n\n");
   Format.fprintf out "(* -------------- *)\n";
   Format.fprintf out "(* ARMv8 contract *)\n";
   Format.fprintf out "(* -------------- *)\n"
@@ -306,8 +314,7 @@ let print_definition (out : Format.formatter) (print_ast : bool)
   let kf = Globals.Functions.get fn.svar in
   let behaviors = Annotations.behaviors kf in
   let contract = Translation.fn_to_arm source in
-
-  Format.fprintf out "\n(* ==== Function %s ====*)\n" fn.svar.vname;
+  Format.fprintf out "\n(* ------- Function %s -------*)\n" fn.svar.vname;
   if
     print_ast
     && List.exists (fun fn -> fn.b_requires |> List.is_empty |> not) behaviors
