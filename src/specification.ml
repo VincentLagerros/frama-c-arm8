@@ -29,11 +29,6 @@ type arm_predicate =
   | Axor of arm_predicate * arm_predicate
   (* t1 (<, >, ≤, ≥, =, ≠) t2 *)
   | Arel of relation * arm_term * arm_term
-  (* ================================ TODO ================================ *)
-  (* overflow t1 (+, -, *, /) t2 *)
-  | Aoverflow of no_overflow_type * arm_term * arm_term
-  (* p_fresh *)
-  | Aunknown
 [@@deriving eq]
 
 and arm_type =
@@ -176,29 +171,50 @@ let rec simplify (predicate : arm_predicate) : arm_predicate =
       match (simplify p1, simplify p2) with
       | Atrue, Atrue -> Atrue
       | Afalse, _ | _, Afalse -> Afalse
-      | Atrue, _ -> simplify p2
-      | _, Atrue -> simplify p1
-      | _, _ -> Aand (simplify p1, simplify p2))
+      | Atrue, sp2 -> sp2
+      | sp1, Atrue -> sp1
+      | sp1, sp2 -> Aand (sp1, sp2))
   | Aor (p1, p2) -> (
       match (simplify p1, simplify p2) with
       | Afalse, Afalse -> Afalse
       | Atrue, _ | _, Atrue -> Atrue
-      | Afalse, _ -> simplify p2
-      | _, Afalse -> simplify p1
-      | _, _ -> Aor (simplify p1, simplify p2))
+      | Afalse, sp2 -> sp2
+      | sp1, Afalse -> sp1
+      | sp1, sp2 -> Aor (sp1, sp2))
   | Anot p -> (
       match simplify p with
       | Afalse -> Atrue
       | Atrue -> Afalse
+      | Anot x -> x
       | pattern -> Anot pattern)
   | Aiff (lhs, rhs) -> (
       match (simplify lhs, simplify rhs) with
-      | Afalse, Afalse -> Atrue
-      | Atrue, Atrue -> Afalse
-      | pattern_lhs, pattern_rhs -> Aiff (pattern_lhs, pattern_rhs))
-  | Aif (c, p1, p2) -> Aif (c, simplify p1, simplify p2)
-  | Aimplies (p1, p2) -> Aimplies (simplify p1, simplify p2)
-  | Axor (p1, p2) -> Axor (simplify p1, simplify p2)
+      | Afalse, Afalse | Atrue, Atrue -> Atrue
+      | Afalse, Atrue | Atrue, Afalse -> Afalse
+      | Atrue, srhs -> srhs
+      | slhs, Atrue -> slhs
+      | Afalse, srhs -> Anot srhs
+      | slhs, Afalse -> Anot slhs
+      | slhs, srhs -> Aiff (slhs, srhs))
+  | Aif (c, p1, p2) -> (
+      match (simplify p1, simplify p2) with
+      | Atrue, Atrue -> Atrue
+      | Afalse, Afalse -> Afalse
+      | sp1, sp2 -> Aif (c, sp1, sp2))
+  | Aimplies (p1, p2) -> (
+      match (simplify p1, simplify p2) with
+      | Afalse, _ -> Atrue
+      | Atrue, sp2 -> sp2
+      | _, Atrue -> Atrue
+      | sp1, Afalse -> Anot sp1
+      | sp1, sp2 -> Aimplies (sp1, sp2))
+  | Axor (p1, p2) -> (
+      match (simplify p1, simplify p2) with
+      | Atrue, Atrue | Afalse, Afalse -> Afalse
+      | Atrue, Afalse | Afalse, Atrue -> Atrue
+      | Atrue, p | p, Atrue -> Anot p
+      | Afalse, p | p, Afalse -> p
+      | sp1, sp2 -> Axor (sp1, sp2))
   | _ -> predicate
 
 (* Helper to print with Printer for error messages*)

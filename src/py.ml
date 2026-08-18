@@ -171,7 +171,7 @@ let pp_no_overflow (out : contract_printer) (o : no_overflow_type)
 let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
   let fmt = out.fmt in
   match predicate with
-  | Aunknown -> Format.fprintf fmt "FreshBool()"
+  (*| Aunknown -> Format.fprintf fmt "FreshBool()"*)
   | Aiff (p1, p2) ->
       Format.fprintf fmt "(";
       pp_arm_predicate out p1;

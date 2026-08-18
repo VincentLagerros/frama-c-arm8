@@ -1,6 +1,5 @@
 open Cil_types
 open Specification
-
 (*
   To do a sound translation into ARMv8 we first translate it into an intermediate representation, simplfying it in the process.
 *)
@@ -376,7 +375,8 @@ and logic_var_to_arm (env : arm_enviroment) (lvar : logic_var) : arm_term_node =
       raise
         (ArmException
            (Printf.sprintf
-              "Variable %s not found, global variables are unsupported. Use -arm8-global to generate a scaffold"
+              "Variable %s not found, global variables are unsupported. Use \
+               -arm8-global to generate a scaffold"
               lvar.lv_name))
   | Some (location, out) -> (
       (* *&x can smuggle variables into the post-state, we need to check that we are in an \old state to do this! *)
@@ -732,7 +732,7 @@ let sformals_to_env (source : arm_translation_source) : arm_enviroment =
 
   (* Dirty hack where you have to manually add the global variables as a user define "variable" *)
   List.iter
-    (fun (variable,_) ->
+    (fun (variable, _) ->
       Hashtbl.add table variable.vorig_name
         (Post, ALval (AVar (Format.sprintf "global_%s" variable.vorig_name))))
     source.globals;
@@ -758,6 +758,13 @@ let fn_to_arm (source : arm_translation_source) : arm_contract =
   (* By default this is complete as it merges every behavior *)
   let behaviors = Annotations.behaviors kf in
   let (env : arm_enviroment) = sformals_to_env source in
+
+  behaviors
+  |> List.filter (fun x -> x.b_assumes |> List.is_empty |> not)
+  |> List.iter (fun x ->
+      Kernel.warning
+        "Unsupported assumes clause in function '%s', using 'assumes \\true' instead"
+        x.b_name);
 
   let contract =
     List.fold_left

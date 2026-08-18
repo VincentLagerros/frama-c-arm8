@@ -255,7 +255,7 @@ let rec pp_arm_predicate (out : contract_printer) (predicate : arm_predicate) =
   | Anot p ->
       Format.fprintf fmt "~";
       pp_arm_predicate out p
-  | _ -> raise (ArmException "Unknown pp_arm_predicate")
+  (*| _ -> raise (ArmException "Unknown pp_arm_predicate")*)
 
 let add_variable (term : arm_term) (name : arm_logic_var)
     (predicate : arm_predicate) =
